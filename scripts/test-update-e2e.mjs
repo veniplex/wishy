@@ -650,7 +650,9 @@ async function updateTests() {
       await admin.post('/api/persons', { name: 'Before' })
       let r = await admin.get('/api/admin/update/status')
       assert(r.json.supervised === true && r.json.mode === 'app' && r.json.app_only === true && r.json.launcher?.key_configured === true, r.text)
-      assert(r.json.docker.available === false && r.json.docker.reason === 'no_socket', JSON.stringify(r.json.docker))
+      // On a host with Docker (e.g. the CI runner) the socket exists, but the launcher does not run in one of its containers
+      const reason = fs.existsSync('/var/run/docker.sock') ? 'self_not_found' : 'no_socket'
+      assert(r.json.docker.available === false && r.json.docker.reason === reason, JSON.stringify(r.json.docker))
       const st = await lstatus()
       assert(st.state === 'idle' && st.version === '1.0.0', JSON.stringify(st))
       assert((await fetch(`${base}/__internal/x`)).status === 404, '/__internal reachable')
