@@ -1,0 +1,150 @@
+# =====================================================================================================
+# CI - continuous integration
+#
+# What it does:  type check, frontend build, JS syntax check and smoke tests (job "test"), the backup/update
+#                end-to-end test (job "e2e"), and a Docker build plus container health check (job "docker").
+#                Goal: surface problems on every change, long before the first release tag.
+# Runs when:     push to main, every pull request, manual run ("Run workflow"). A newer run for the same
+#                ref cancels the older one.
+# Produces:      nothing is published or pushed; the Docker image is built locally on the runner only.
+# Needs:         no secrets, no environments. Permissions: read-only access to the repository contents.
+#
+# IMPORTANT - branch protection: it requires the status checks named exactly `test` and `docker`.
+# GitHub reports a job's `name:` as the check name, so the `name:` of those two jobs MUST stay `test`
+# and `docker` (they equal the job IDs on purpose). Do not rename them without updating branch protection.
+# =====================================================================================================
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Minimal permissions: CI only reads the code. Nothing here may write to the repo or to packages.
+permissions:
+  contents: read
+
+# One run per ref; a new push to the same branch/PR cancels the outdated run to save runner time.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Required check `test` (see header). Fast feedback: types, build, syntax, smoke tests.
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      # Third-party actions are pinned to a full commit SHA (the "# vX.Y.Z" comment names the version) so a
+      # moved or compromised tag cannot change what runs. Dependabot bumps the SHAs.
+      # persist-credentials: false keeps the token out of .git/config, where later steps could read it.
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js 24 with npm cache
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+
+      # `npm ci` installs exactly what package-lock.json says (reproducible, fails on a stale lockfile).
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Build the frontend
+        run: npm run build
+
+      # The server, launcher and scripts are plain JS (not covered by the type check), so at least
+      # make sure every file parses.
+      - name: Check JavaScript syntax (server, launcher, scripts)
+        shell: bash
+        run: |
+          set -euo pipefail
+          n=0
+          while IFS= read -r f; do
+            node --check "$f"
+            n=$((n + 1))
+          done < <(find server launcher scripts -type f \( -name '*.js' -o -name '*.mjs' \))
+          echo "$n files checked"
+
+      # Each smoke test starts its own server on a fixed port with a fresh temp data directory
+      # (default ports 3961-3999, free on the runner). PREVIEW_BROWSER=off: no Chromium needed; only the plain
+      # HTTP fetch is tested. Not included: the update end-to-end (job "e2e") and real Docker updates.
+      - name: Run the smoke tests
+        env:
+          PREVIEW_BROWSER: 'off'
+        run: npm run test:smoke
+
+  # Backup/update end-to-end test with a fake GitHub and a fake Docker API.
+  # Long-running, so it is skipped on pull requests and runs on main (and manual runs) only.
+  # Not a required check.
+  e2e:
+    name: e2e
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js 24 with npm cache
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build the frontend
+        run: npm run build
+
+      - name: Run the backup and update end-to-end test
+        run: npm run test:e2e
+
+  # Required check `docker` (see header). Proves the Dockerfile still builds and the container boots.
+  docker:
+    name: docker
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      # push: false + load: true -> the image only lands in the runner's local Docker daemon.
+      - name: Build the Docker image (no push)
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          push: false
+          load: true
+          tags: wishy-ci:test
+
+      # Start the container and poll /healthz for up to 60 s; fail (and print the container logs)
+      # unless it reports {"status":"ok"}.
+      - name: Start the container and check that it reports healthy
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run -d --name wishy-ci -p 3955:3000 -e PREVIEW_BROWSER=off wishy-ci:test
+          for i in $(seq 1 60); do
+            curl -fsS http://127.0.0.1:3955/healthz > health.json && break
+            sleep 1
+          done
+          cat health.json; echo
+          grep -q '"status":"ok"' health.json || { docker logs wishy-ci; exit 1; }
+          docker rm -f wishy-ci

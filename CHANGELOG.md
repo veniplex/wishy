@@ -1,0 +1,33 @@
+# Changelog
+
+Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning according to [SemVer](https://semver.org/).
+The section of a version is used automatically as the release notes when releasing
+(`scripts/release-notes.mjs`); the heading must read exactly `## [x.y.z]`.
+
+## [1.0.0] – unreleased
+
+First public version.
+
+### Wishes and gifts
+- Your own wish lists (as many as you like), shareable by link (even without an account) and directly with app users.
+- Reserving by others without the recipient seeing it; "Reserve & plan" creates a gift in the chosen space.
+- Gift ideas, people, occasions (birthdays and more), gift status, shared gifts with cost shares, and budgets.
+- Person-centred planning: the person page is the main planning place (one block per occasion, plus gifts and ideas without an occasion); occasions are grouped by person; occasions apply to everyone or to selected people, and single people can be left out; every gift needs a recipient; birthdays come from the person.
+- Link import with preview (title, image, price from JSON-LD/OpenGraph/Microdata), using headless Chromium when needed.
+- Optional AI assistance (Anthropic, OpenAI, Google) and quick capture from text.
+
+### Spaces and accounts
+- Spaces for shared planning with invite links; export/import per space.
+- Sign-in with email and password, 2FA (TOTP), passkeys (WebAuthn) and Google; registration open, invite-only or closed.
+- Administration: user management, audit log, system statistics, API keys and REST API (`/api/v1`, OpenAPI).
+- UI in English and German.
+
+### Operations
+- Docker image (amd64 + arm64) with launcher, maintenance page, recovery view and healthcheck.
+- Backups as a single file (optionally AES-256-GCM encrypted) with schedule, retention and restore.
+- Signed updates (Ed25519): in-container app update, image update via the Docker API, automatic rollback with a backup taken before the update.
+- Weekly security watcher that opens an issue when the container image has fixable vulnerabilities or newer base components are available.
+
+### Security
+- Security headers, rate limiting, SSRF protection in the link import, sealed secrets (`secret.key`).
+- Supply chain: actions and base image pinned by SHA, npm audit and Trivy scan in CI.

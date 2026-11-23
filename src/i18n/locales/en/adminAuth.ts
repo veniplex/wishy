@@ -1,0 +1,47 @@
+import type de from '../de/adminAuth'
+
+const en: Record<keyof typeof de, string> = {
+  'title': 'Sign-in',
+  'sub': 'Registration, Google sign-in and two-factor policy',
+  'save': 'Save',
+  'saved': 'Saved',
+  'loading': 'Loading …',
+  'envLocked': 'Set by an environment variable – cannot be changed here.',
+
+  'reg.title': 'Registration',
+  'reg.enabled': 'Allow new accounts',
+  'reg.enabledHint': 'Off: only you create accounts, under “Users”.',
+  'reg.mode': 'Who may register?',
+  'reg.open': 'Anyone',
+  'reg.invite': 'Invite only',
+  'reg.modeHint': 'Anyone: the sign-in page shows “Register”. Invite only: accounts are created through invite links (Admin › Users).',
+
+  'google.title': 'Google sign-in',
+  'google.enabled': 'Offer sign-in with Google',
+  'google.enabledHint': 'Off: the button disappears and nobody can sign in with Google. Existing links are kept.',
+  'google.needCreds': 'Enter a client ID and client secret first, then you can turn Google on.',
+  'google.clientId': 'Client ID',
+  'google.clientSecret': 'Client secret',
+  'google.secretHint': 'Never shown. A new value replaces the stored secret.',
+  'google.secretReplace': 'Enter a new secret to replace it',
+  'google.secretEnter': 'Enter secret',
+  'google.secretSet': 'set',
+  'google.clear': 'Remove',
+  'google.clearTitle': 'Remove the client secret?',
+  'google.clearText': 'Google sign-in will not work again until you enter a new secret.',
+  'google.redirectUri': 'Authorised redirect URI',
+  'google.redirectUriHint': 'Enter this value in the Google Cloud console. It follows the base URL (Admin › General) – save that first.',
+  'google.howTitle': 'How to set up Google',
+  'google.how1': 'In the Google Cloud console pick a project and configure the app under “APIs & Services → OAuth consent screen”.',
+  'google.how2': 'Under “Credentials → Create credentials → OAuth client ID” choose the type “Web application”.',
+  'google.how3': 'Under “Authorised redirect URIs” add the value from above and save.',
+  'google.how4': 'Enter the client ID and client secret here, save, and turn Google on.',
+
+  'twofa.title': 'Two-factor policy',
+  'twofa.label': 'Two-factor authentication',
+  'twofa.optional': 'Optional',
+  'twofa.required': 'Required',
+  'twofa.hint': 'Optional: users decide for themselves. Required: anyone without a method must set one up right after signing in.',
+  'twofa.requiredWarn': 'Make sure you have set up a method yourself (Settings › Account) before you turn this on.',
+}
+export default en

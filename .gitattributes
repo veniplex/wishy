@@ -1,0 +1,9 @@
+# Consistent line endings (LF) - important for Docker, shell scripts and reproducible release archives
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.ico binary
+*.woff binary
+*.woff2 binary

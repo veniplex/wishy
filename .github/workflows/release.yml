@@ -1,0 +1,313 @@
+# =====================================================================================================
+# Release
+#
+# What it does:  builds, tests, scans, signs and publishes a Wishy release in three jobs:
+#   1. build   - preflight checks, tests, multi-arch image pushed WITHOUT a tag, vulnerability scan, and only
+#                then the image tags are applied; also produces the unsigned release archive and metadata.
+#   2. sign    - signs the archive/metadata with the Ed25519 update key (see the note on the job).
+#   3. publish - creates the GitHub release with archive, metadata, signatures and release notes.
+# Runs when:     a tag `v<semver>` is pushed (e.g. v1.0.0, v1.0.0-rc.1). Create it with
+#                `npm version <x.y.z> && git push --follow-tags`. A tag with a prerelease suffix (-rc.1)
+#                is published as a pre-release and does not move the `latest` / `<major>.<minor>` image tags.
+# Produces:      image ghcr.io/veniplex/wishy:<version> (+ :<major>.<minor> and :latest for stable releases),
+#                and a GitHub release with wishy-<version>.tar.gz, release metadata, *.sig files and notes.
+# Needs:         secret WISHY_UPDATE_KEY, available ONLY in the protected environment `release-signing`
+#                (required approval). GITHUB_TOKEN with per-job permissions (packages: write in `build`,
+#                contents: write in `publish`).
+# Setup and troubleshooting: docs/RELEASING.md.
+# =====================================================================================================
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+# No permissions by default; every job below asks only for what it needs (least privilege).
+permissions: {}
+
+# One release run per tag; never cancel a release that is already in progress.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build, test, scan and push the image
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: write # push the image to ghcr.io
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      prerelease: ${{ steps.v.outputs.prerelease }}
+    steps:
+      # Third-party actions are pinned to a full commit SHA (the "# vX.Y.Z" comment names the version) so a
+      # moved or compromised tag cannot change what runs. Dependabot bumps the SHAs.
+      # persist-credentials: false keeps the token out of .git/config, where later steps could read it.
+      - name: Check out the tagged commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js 24 with npm cache
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+
+      # Fail fast, before anything is built or pushed. Also derives the version from the tag and exports
+      # it (step outputs for later jobs, env vars VERSION and IMAGE for later steps).
+      - name: Run preflight checks (update key, tag matches package.json, changelog)
+        id: v
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # The public update key must be committed, otherwise installed apps could not verify the release.
+          if [ ! -s launcher/update-key.pub ]; then
+            echo "::error::launcher/update-key.pub is missing in the tagged commit. Generate a key (node scripts/gen-update-key.mjs), commit the file and re-create the tag (docs/RELEASING.md)."
+            exit 1
+          fi
+          grep -q "BEGIN PUBLIC KEY" launcher/update-key.pub || { echo "::error::launcher/update-key.pub is not a public PEM key"; exit 1; }
+
+          # The tag must look like v<major>.<minor>.<patch>[-<prerelease>] and equal the version in package.json.
+          case "$GITHUB_REF_NAME" in
+            v[0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "::error::Tag $GITHUB_REF_NAME is not a version v<major>.<minor>.<patch>[-<prerelease>]"; exit 1;;
+          esac
+          V="${GITHUB_REF_NAME#v}"
+          P="$(node -p "JSON.parse(require('fs').readFileSync('package.json','utf8')).version")"
+          if [ "$V" != "$P" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match package.json ($P). Re-create it with 'npm version $V'."
+            exit 1
+          fi
+
+          # CHANGELOG.md must have a non-empty section for this version; it becomes the release notes.
+          node scripts/release-notes.mjs "$V" --out release-notes.md || { echo "::error::CHANGELOG.md has no section '## [$V]' with content"; exit 1; }
+
+          # Hand the results on: a version containing "-" (e.g. 1.0.0-rc.1) is a pre-release.
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          case "$V" in *-*) echo "prerelease=true" >> "$GITHUB_OUTPUT";; *) echo "prerelease=false" >> "$GITHUB_OUTPUT";; esac
+          echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+          echo "VERSION=$V" >> "$GITHUB_ENV"
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Reports findings as a warning; the check on every push (security.yml) shows them permanently. A finding in a
+      # dependency (possibly not fixable yet) should not block the release.
+      - name: Audit production dependencies (warning only)
+        run: npm audit --omit=dev --audit-level=critical || echo "::warning::npm audit reports critical findings in production dependencies"
+
+      - name: Type check and build the frontend
+        run: npm run build
+
+      - name: Build the app archive (unsigned)
+        run: node scripts/build-release.mjs --out release
+
+      # Prove the archive works on its own: unpack it, start the server and check /healthz reports this version.
+      - name: Smoke test the archive (unpack it and start the server)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/smoke/app /tmp/smoke/data
+          tar -xzf "release/wishy-$VERSION.tar.gz" -C /tmp/smoke/app
+          cd /tmp/smoke/app
+          DATA_DIR=/tmp/smoke/data PORT=3999 PREVIEW_BROWSER=off node server/index.js & PID=$!
+          for i in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:3999/healthz > /tmp/smoke/health.json && break
+            sleep 1
+          done
+          cat /tmp/smoke/health.json; echo
+          grep -q "\"version\":\"$VERSION\"" /tmp/smoke/health.json
+          kill $PID
+
+      - name: Run the backup and update tests
+        run: node scripts/test-update-e2e.mjs
+        timeout-minutes: 25
+
+      # QEMU emulates arm64 so one runner can build the multi-arch (amd64 + arm64) image.
+      - name: Set up QEMU (arm64 emulation)
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Computes the image tags and OCI labels. Stable releases also get <major>.<minor> and latest;
+      # pre-releases only get the exact version tag. The tags are applied later, after the scan.
+      - name: Compute image tags and labels
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ env.IMAGE }}
+          flavor: latest=false
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}},enable=${{ steps.v.outputs.prerelease == 'false' }}
+            type=raw,value=latest,enable=${{ steps.v.outputs.prerelease == 'false' }}
+
+      # Push by digest only (no tag) first: a failed scan must not move any tag (least of all latest).
+      - name: Build and push the image by digest (amd64 + arm64, no tag)
+        id: push
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          pull: true
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          build-args: |
+            VERSION=${{ env.VERSION }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+      # Scans the pushed (still untagged) digest. A failure here stops the job before any tag exists.
+      - name: Scan the image with Trivy (fails only on fixable critical findings)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        env:
+          TRIVY_USERNAME: ${{ github.actor }}
+          TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          image-ref: ${{ env.IMAGE }}@${{ steps.push.outputs.digest }}
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+
+      # The scan passed: attach the tags to the exact digest that was scanned (no rebuild, so what was
+      # scanned is what users pull).
+      - name: Apply the tags to the scanned digest
+        shell: bash
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          set -euo pipefail
+          args=()
+          while IFS= read -r t; do
+            if [ -n "$t" ]; then args+=(-t "$t"); fi
+          done <<< "$TAGS"
+          docker buildx imagetools create "${args[@]}" "$IMAGE@$DIGEST"
+          # Show the first lines of the result for the log (written to a file first: `| head` plus
+          # `pipefail` could fail on SIGPIPE).
+          docker buildx imagetools inspect "$IMAGE:$VERSION" > inspect.txt
+          head -5 inspect.txt
+
+      # Writes the release metadata (version, image digest, component list from inside the image).
+      - name: Build the release metadata (image digest and component list)
+        shell: bash
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          set -euo pipefail
+          docker run --rm --entrypoint cat "$IMAGE@$DIGEST" /app/components.json > components.json
+          node scripts/build-release.mjs --meta-only --version "$VERSION" --image "$IMAGE" --image-digest "$DIGEST" --components components.json --out release
+          ls -la release
+
+      # Hand the unsigned files to the `sign` job and the notes to `publish` (kept 7 days).
+      - name: Upload the unsigned release files
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-unsigned
+          path: release/
+          retention-days: 7
+
+      - name: Upload the release notes
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: notes
+          path: release-notes.md
+          retention-days: 7
+
+  # Why signing is a separate job: this is the only job that can read WISHY_UPDATE_KEY. It runs in the protected
+  # environment `release-signing` (a maintainer must approve the run), it checks out only the few files
+  # it needs and runs no npm code or third-party dependencies, so nothing from the build can reach the key.
+  sign:
+    name: Sign the release files with the update key
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: release-signing
+    permissions:
+      contents: read
+    steps:
+      # Sparse checkout: only the files signing needs (no npm code, no dependencies).
+      - name: Check out only the signing script and public key
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            package.json
+            scripts/sign-release.mjs
+            launcher/lib/release.js
+            launcher/update-key.pub
+          sparse-checkout-cone-mode: false
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+
+      - name: Download the unsigned release files
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-unsigned
+          path: release
+
+      # The script signs with the private key from the secret and immediately verifies the signatures
+      # against the public key committed in the repo, so a wrong key is caught before publishing.
+      - name: Sign the release files and verify them against the built-in public key
+        shell: bash
+        env:
+          WISHY_UPDATE_KEY: ${{ secrets.WISHY_UPDATE_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$WISHY_UPDATE_KEY" || { echo "::error::Secret WISHY_UPDATE_KEY is missing in the release-signing environment"; exit 1; }
+          node scripts/sign-release.mjs release --verify-with launcher/update-key.pub
+          ls -la release
+
+      - name: Upload the signatures
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-signatures
+          path: release/*.sig
+          retention-days: 7
+
+  publish:
+    name: Publish the GitHub release
+    needs: [build, sign]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write # create the GitHub release and upload its assets
+    steps:
+      # pattern release-* matches release-unsigned and release-signatures; merge-multiple puts both in one folder.
+      - name: Download the release files and signatures
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: release-*
+          path: release
+          merge-multiple: true
+
+      - name: Download the release notes
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: notes
+          path: notes
+
+      - name: List the release contents
+        run: ls -la release notes
+
+      # Pre-releases are flagged as such and never become the "latest" release.
+      - name: Create the GitHub release
+        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
+        with:
+          files: release/*
+          body_path: notes/release-notes.md
+          prerelease: ${{ needs.build.outputs.prerelease == 'true' }}
+          make_latest: ${{ needs.build.outputs.prerelease == 'false' }}

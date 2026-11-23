@@ -1,0 +1,70 @@
+# =====================================================================================================
+# Security checks
+#
+# What it does:  runs `npm audit` on the production dependencies and scans the built container image with
+#                Trivy. Fails only on CRITICAL findings; findings without an available fix
+#                (ignore-unfixed) do not count.
+# Runs when:     push to main, every pull request, weekly (Wednesday 05:41 UTC), manual run.
+# Produces:      nothing; the image is built locally and never pushed. The result is the pass/fail status.
+# Needs:         no secrets, no environments. Permissions: read-only access to the repository contents.
+#
+# Independent of the release (release.yml): a red run here does not block a tag. The weekly watcher
+# (watch.yml) reports fixable HIGH/CRITICAL findings and newer base components as an issue.
+# =====================================================================================================
+name: Security checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: '41 5 * * 3'
+  workflow_dispatch:
+
+# Minimal permissions: scanning only needs to read the code.
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    name: Dependency audit and container scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      # Actions are pinned to full commit SHAs ("# vX.Y.Z" names the version); Dependabot bumps them.
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js 24 with npm cache
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Audit production dependencies (fails on critical findings)
+        run: npm audit --omit=dev --audit-level=critical
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      # pull: true fetches the freshest base image; load: true keeps the image local for the scan.
+      - name: Build the Docker image (no push)
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          load: true
+          pull: true
+          tags: wishy-scan:ci
+
+      - name: Scan the image with Trivy (fails on fixable critical findings)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: wishy-scan:ci
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'

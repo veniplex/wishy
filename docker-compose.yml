@@ -1,0 +1,61 @@
+services:
+  wishy:
+    # Prebuilt image (after the first release); `build: .` builds locally instead and tags it with this name.
+    image: ${WISHY_IMAGE:-ghcr.io/veniplex/wishy:latest}
+    build: .
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data:/data
+    environment:
+      TZ: Europe/Berlin
+      # BASE_URL: https://wishy.example.de
+      # TRUST_PROXY: "1"                 # number of reverse-proxy hops IN FRONT of the container (the launcher counts itself)
+      # UPDATE_REPO: veniplex/wishy      # default; only change for forks (or in Admin › Updates)
+      # BACKUP_PASSPHRASE: "…"           # overrides the passphrase set in Admin › Backups
+    restart: unless-stopped
+    stop_grace_period: 30s
+    # Hardening (tested without Chromium specifics; Chromium needs a writable /tmp):
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    # read_only: true                    # possible, then additionally:
+    # tmpfs: [/tmp]
+
+    # ---- Image updates (Node, Alpine packages, Chromium, launcher) from within the app ------------------
+    # Wishy needs access to the Docker API for this. That is powerful (roughly root on the host) - see
+    # docs/operations.md, section "Image updates". Without this access Wishy only updates the app + npm packages.
+    #
+    # Option B (recommended): restricted socket proxy, reachable only on the internal network:
+    # environment:
+    #   DOCKER_HOST: tcp://docker-proxy:2375
+    # networks: [default, docker-api]
+    # depends_on: [docker-proxy]
+    #
+    # Option A (simple, but full privileges): mount the socket directly; group = GID of /var/run/docker.sock
+    # on the host (`stat -c %g /var/run/docker.sock`):
+    # volumes:
+    #   - ./data:/data
+    #   - /var/run/docker.sock:/var/run/docker.sock
+    # group_add: ["999"]
+
+  # docker-proxy:                        # Option B - only the endpoints the self-replacement needs
+  #   image: wollomatic/socket-proxy:1.10.0
+  #   restart: unless-stopped
+  #   read_only: true
+  #   cap_drop: [ALL]
+  #   security_opt: [no-new-privileges:true]
+  #   user: "65534:999"                  # 999 = GID of /var/run/docker.sock on the host
+  #   volumes:
+  #     - /var/run/docker.sock:/var/run/docker.sock:ro
+  #   networks: [docker-api]
+  #   command:
+  #     - -loglevel=info
+  #     - -listenip=0.0.0.0
+  #     - -allowGET=^/(v1\.4[1-5]/)?version$|^/v1\.4[1-5]/(containers/[a-zA-Z0-9_.-]+/json|images/[a-zA-Z0-9_.:/@-]+/json)$
+  #     - -allowPOST=^/v1\.4[1-5]/(containers/create|containers/[a-zA-Z0-9_.-]+/(start|stop|rename)|images/create|networks/[a-zA-Z0-9_.-]+/connect)
+  #     - -allowDELETE=^/v1\.4[1-5]/(containers/[a-zA-Z0-9_.-]+|images/[a-zA-Z0-9_.:@-]+)
+  #     - -allowHEAD=^/_ping$
+
+# networks:
+#   docker-api:
+#     internal: true                     # no internet, only Wishy <-> proxy

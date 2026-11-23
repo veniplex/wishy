@@ -1,0 +1,184 @@
+# =====================================================================================================
+# Security watcher
+#
+# What it does:  builds the container image of the latest stable release (or of the default branch when there
+#                is none) WITHOUT pushing it, and looks for things that call for a new release:
+#                  - fixable HIGH/CRITICAL vulnerabilities in the image (Trivy) or in the npm production
+#                    dependencies (npm audit),
+#                  - a newer base image digest for the same Node major (the Dockerfile pins one),
+#                  - newer Node.js / Alpine / Chromium versions than in the latest release's components.json.
+# Runs when:     weekly (Monday 04:17 UTC) and on demand ("Run workflow").
+# Produces:      ONE issue "Security updates available for the container image", opened or updated when
+#                something is found and closed automatically when a later run finds nothing.
+#                It never publishes a release or an image; the maintainer merges the Dependabot PRs and cuts a
+#                release (docs/RELEASING.md, "Keeping the base image current").
+# Needs:         no custom secrets; uses the built-in GITHUB_TOKEN with contents: read, issues: write
+#                and packages: read.
+# =====================================================================================================
+name: Security watcher
+
+on:
+  schedule:
+    - cron: '17 4 * * 1'
+  workflow_dispatch:
+
+# No permissions by default; the single job below asks only for what it needs (least privilege).
+permissions: {}
+
+# Never run two watchers at once (they would fight over the same issue); never cancel a running one.
+concurrency:
+  group: watch
+  cancel-in-progress: false
+
+env:
+  # The watcher finds "its" issue by this exact title, so do not change it casually.
+  ISSUE_TITLE: Security updates available for the container image
+
+jobs:
+  watch:
+    name: Check the image and dependencies, then update the issue
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read # check out the code, download the release metadata
+      issues: write # open, update and close the watcher issue
+      packages: read # read image metadata from ghcr.io
+    steps:
+      # Decide what to watch: the latest stable release tag, or the default branch if there is no release yet.
+      # Results: outputs `ref` (what to check out) and `last` (the release tag, empty if none).
+      - name: Find the latest stable release
+        id: base
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if LAST="$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name 2>/dev/null)" && [ -n "$LAST" ]; then
+            echo "ref=$LAST" >> "$GITHUB_OUTPUT"
+            echo "last=$LAST" >> "$GITHUB_OUTPUT"
+            echo "::notice::Watching the image of release $LAST"
+          else
+            echo "ref=${{ github.event.repository.default_branch }}" >> "$GITHUB_OUTPUT"
+            echo "last=" >> "$GITHUB_OUTPUT"
+            echo "::notice::No stable release yet - watching the default branch"
+          fi
+
+      # Actions are pinned to full commit SHAs ("# vX.Y.Z" names the version); Dependabot bumps them.
+      # persist-credentials: false keeps the token out of .git/config.
+      - name: Check out the code of the watched release
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.base.outputs.ref }}
+          persist-credentials: false
+
+      # Node is needed for the helper scripts (scripts/lib/watch-report.mjs) and for parsing JSON below.
+      - name: Set up Node.js 24
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      # Fresh build without cache so apk upgrade picks up the newest Alpine packages; nothing is pushed.
+      - name: Build the image (amd64, no cache, no push)
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          pull: true
+          no-cache: true
+          tags: wishy-watch:local
+
+      # exit-code 0: never fail here; the findings go into trivy.json and are reported through the issue.
+      - name: Scan the image with Trivy (HIGH/CRITICAL, fixable only)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: wishy-watch:local
+          format: json
+          output: trivy.json
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '0'
+
+      # npm audit works from the lockfile; it exits non-zero when it finds something, which is not an error here.
+      - name: Audit production dependencies (npm audit)
+        run: npm audit --omit=dev --json > audit.json || true
+
+      # Gathers everything the report compares: the component list of the image we just built, the metadata of
+      # the last release, and the base image digest pinned in the Dockerfile vs. the digest its tag has now.
+      - name: Collect the comparison data
+        id: data
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LAST: ${{ steps.base.outputs.last }}
+        run: |
+          set -euo pipefail
+
+          # Components (Node, Alpine, Chromium versions) inside the freshly built image.
+          docker run --rm --entrypoint cat wishy-watch:local /app/components.json > components.json
+
+          # Release metadata of the last release (an empty object if there is none or the download fails).
+          echo '{}' > last.release.json
+          if [ -n "$LAST" ]; then
+            NAME="wishy-$(echo "${LAST#v}" | tr '+' '-').release.json"
+            gh release download "$LAST" --repo "$GITHUB_REPOSITORY" --pattern "$NAME" --output last.release.json || echo '{}' > last.release.json
+          fi
+
+          # Base image: tag and digest pinned by the Dockerfile vs. what the tag points to now (same Node major)
+          read -r TAG PINNED < <(sed -n 's/^FROM \(node:[^@ ]*\)@\(sha256:[0-9a-f]*\).*/\1 \2/p' Dockerfile | head -1) || true
+          LATEST=""
+          if [ -n "$TAG" ]; then
+            LATEST="$(docker buildx imagetools inspect "$TAG" --format '{{json .Manifest}}' | node -p "JSON.parse(require('fs').readFileSync(0,'utf8')).digest" || true)"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "pinned=$PINNED" >> "$GITHUB_OUTPUT"
+          echo "latest=$LATEST" >> "$GITHUB_OUTPUT"
+
+      # The helper script turns all data into report.md and sets the output `findings` (true/false).
+      - name: Build the report
+        id: report
+        shell: bash
+        env:
+          REF: ${{ steps.base.outputs.ref }}
+          TAG: ${{ steps.data.outputs.tag }}
+          PINNED: ${{ steps.data.outputs.pinned }}
+          LATEST: ${{ steps.data.outputs.latest }}
+        run: |
+          set -euo pipefail
+          node scripts/lib/watch-report.mjs --trivy trivy.json --audit audit.json --components components.json \
+            --last last.release.json --ref "$REF" --base-tag "$TAG" --pinned-digest "$PINNED" --latest-digest "$LATEST" \
+            --out report.md
+          cat report.md
+
+      # Findings + open issue -> update it; findings, no issue -> create it; no findings + open issue -> close it.
+      - name: Open, update or close the issue
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FINDINGS: ${{ steps.report.outputs.findings }}
+        run: |
+          set -euo pipefail
+
+          # Number of the open watcher issue (matched by exact title), empty if there is none.
+          NUMBER="$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --label security --search "\"$ISSUE_TITLE\" in:title" --json number,title \
+            --jq "[.[] | select(.title == \"$ISSUE_TITLE\")][0].number // empty")"
+
+          if [ "$FINDINGS" = "true" ]; then
+            # Make sure the labels exist (errors ignored: they usually do).
+            gh label create security --repo "$GITHUB_REPOSITORY" --color D93F0B --description "Security-related" 2>/dev/null || true
+            gh label create dependencies --repo "$GITHUB_REPOSITORY" --color 0366D6 --description "Dependency updates" 2>/dev/null || true
+            if [ -n "$NUMBER" ]; then
+              gh issue edit "$NUMBER" --repo "$GITHUB_REPOSITORY" --body-file report.md
+              echo "Updated issue #$NUMBER"
+            else
+              gh issue create --repo "$GITHUB_REPOSITORY" --title "$ISSUE_TITLE" --label security --label dependencies --body-file report.md
+            fi
+          elif [ -n "$NUMBER" ]; then
+            gh issue close "$NUMBER" --repo "$GITHUB_REPOSITORY" --comment "The latest watcher run found no fixable HIGH/CRITICAL vulnerabilities and no newer base components. Closing automatically."
+            echo "Closed issue #$NUMBER"
+          else
+            echo "Nothing found, no open issue."
+          fi

@@ -1,0 +1,22 @@
+/** Full-screen maintenance notice. */
+export default {
+  'title.maintenance': 'Wartung läuft',
+  'title.updating': 'Wishy wird aktualisiert',
+  'title.restoring': 'Backup wird wiederhergestellt',
+  'title.starting': 'Wishy startet',
+  'title.restart_required': 'Neustart erforderlich',
+  'title.failed': 'Wishy ist gerade nicht erreichbar',
+  'sub': 'Gleich geht es weiter. Diese Seite lädt sich automatisch neu.',
+  'subFailed': 'Diese Seite versucht es weiter. Prüfe das Protokoll der Installation, wenn es länger dauert.',
+  'waiting': 'Warte auf Wishy …',
+  'reconnecting': 'Verbindung unterbrochen – neuer Versuch …',
+  'target': 'Version {version}',
+  'restart.title': 'Wishy muss neu gestartet werden',
+  'restart.admin': 'Das Backup „{source}“ ist vorbereitet und wird beim nächsten Start von Wishy eingespielt. Starte Wishy jetzt neu (Prozess beenden und wieder starten, zum Beispiel npm start). Diese Seite lädt sich danach selbst neu.',
+  'restart.others': 'Die Administration stellt gerade ein Backup wieder her. Wishy ist gleich wieder da – diese Seite lädt sich automatisch neu.',
+  'restart.cancel': 'Wiederherstellung abbrechen',
+  'updatedNotice': 'Wishy wurde aktualisiert. Bitte melde dich neu an.',
+  'restoredNotice': 'Wishy wurde gewartet. Bitte melde dich neu an.',
+  'swap': 'Der Container wird gerade ausgetauscht – die Verbindung bricht dabei kurz ab. Das ist normal und dauert meist weniger als eine Minute.',
+  'longer': 'Das dauert länger als üblich. Wishy versucht es weiter. Hilft das nicht, schau ins Container-Log (docker compose logs wishy) oder öffne /__launcher/recovery.',
+} as const

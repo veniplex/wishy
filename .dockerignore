@@ -1,0 +1,30 @@
+# None of this belongs in the image or the build context
+.git
+.github
+.claude
+.vscode
+.idea
+node_modules
+dist
+data
+release
+release-notes.md
+components.json
+coverage
+docs
+*.md
+*.log
+*.tmp
+*.bak
+.env
+.env.*
+*.key
+*.pem
+*.wbk
+*.wbk.enc
+secret.key
+backups
+# Tests are not needed in the image (the build only copies dist/, server/, launcher/ and package*.json)
+scripts/tests
+scripts/test-update-e2e.mjs
+scripts/lib

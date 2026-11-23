@@ -1,0 +1,60 @@
+{
+  "name": "wishy",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Wishy – self-hosted app for wishlists, gift ideas and shared gift planning",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/veniplex/wishy.git"
+  },
+  "homepage": "https://github.com/veniplex/wishy#readme",
+  "bugs": {
+    "url": "https://github.com/veniplex/wishy/issues"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -k -n api,web -c blue,magenta \"node --watch server/index.js\" \"vite\"",
+    "build": "tsc --noEmit && vite build",
+    "start": "node server/index.js",
+    "typecheck": "tsc --noEmit",
+    "start:launcher": "node launcher/index.js",
+    "release:key": "node scripts/gen-update-key.mjs",
+    "release:build": "node scripts/build-release.mjs --build",
+    "test:e2e": "node scripts/test-update-e2e.mjs",
+    "release:sign": "node scripts/sign-release.mjs release --verify-with launcher/update-key.pub",
+    "test:smoke": "node scripts/tests/smoke-core.mjs && node scripts/tests/smoke-auth.mjs && node scripts/tests/smoke-platform.mjs && node scripts/tests/occasion-types.mjs && node scripts/tests/space-permissions.mjs && node scripts/tests/person-planning.mjs"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^1.12.0",
+    "@fontsource-variable/bricolage-grotesque": "^5.3.0",
+    "@fontsource-variable/inter": "^5.3.0",
+    "@google/genai": "^3.6.1",
+    "@simplewebauthn/browser": "^14.0.0",
+    "@simplewebauthn/server": "^14.1.0",
+    "cheerio": "^1.2.0",
+    "express": "^5.3.0",
+    "jose": "^6.2.18",
+    "lucide-react": "^1.77.0",
+    "openai": "^7.62.0",
+    "puppeteer-core": "^25.18.1",
+    "qrcode": "^1.5.4",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "react-router-dom": "^7.18.6",
+    "tar": "^7.5.23"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.5",
+    "@types/qrcode": "^1.5.6",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.3.0",
+    "concurrently": "^10.0.7",
+    "tailwindcss": "^4.3.5",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8"
+  }
+}

@@ -1,0 +1,31 @@
+/** Cross-cutting: relative times, theme names, recurring labels. de is the source of truth. */
+export default {
+  'rel.today': 'heute',
+  'rel.tomorrow': 'morgen',
+  'rel.yesterday': 'gestern',
+  'rel.daysAgo_one': 'vor {count} Tag',
+  'rel.daysAgo_other': 'vor {count} Tagen',
+  'rel.inDays_one': 'in {count} Tag',
+  'rel.inDays_other': 'in {count} Tagen',
+  'rel.inMonths_one': 'in {count} Monat',
+  'rel.inMonths_other': 'in {count} Monaten',
+  'rel.inYears_one': 'in {count} Jahr',
+  'rel.inYears_other': 'in {count} Jahren',
+
+  'theme.system': 'System',
+  'theme.light': 'Hell',
+  'theme.dark': 'Dunkel',
+
+  'dateToday': '{weekday}, der {date}',
+  'loading': 'Lade …',
+  'saved': 'Gespeichert',
+  'save': 'Speichern',
+  'cancel': 'Abbrechen',
+  'done': 'Fertig',
+  'never': 'noch nie',
+  'retry': 'Erneut versuchen',
+  'toOverview': 'Zur Übersicht',
+  'language': 'Sprache',
+  'you': 'Du',
+  'ofAmount': 'von {amount}',
+} as const

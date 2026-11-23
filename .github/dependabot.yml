@@ -1,0 +1,37 @@
+# Dependabot version updates: opens pull requests weekly for outdated dependencies.
+# Three ecosystems are watched: npm packages, the Docker base image and the GitHub Actions used by the
+# workflows. The weekly security watcher (workflows/watch.yml) tells the maintainer when merged updates
+# justify a new release.
+version: 2
+updates:
+  # npm packages (package.json / package-lock.json). Minor and patch updates are grouped into one PR each for
+  # production and development dependencies to keep the PR count low; major updates arrive as separate PRs.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    groups:
+      production:
+        dependency-type: production
+        update-types: [minor, patch]
+      development:
+        dependency-type: development
+        update-types: [minor, patch]
+
+  # Base image (FROM node:24-alpine@sha256:...): digest updates.
+  # Node major upgrades are ignored on purpose; they are done manually.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    ignore:
+      - dependency-name: node
+        update-types: [version-update:semver-major]
+
+  # GitHub Actions used in .github/workflows (pinned by commit SHA with a "# vX.Y.Z" comment, which
+  # Dependabot keeps up to date).
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
