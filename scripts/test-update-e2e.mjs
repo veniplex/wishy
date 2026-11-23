@@ -428,8 +428,8 @@ async function backupTests() {
     assert(!r.json.backups.some((b) => b.reason === 'scheduled'), 'immediate catch-up run after settings change')
     peekDb(DATA, (h) => h.prepare("UPDATE system_settings SET value='0' WHERE key='backup_last_slot'").run())
     await waitFor(async () => (await admin.get('/api/admin/backups')).json.backups.some((b) => b.reason === 'scheduled'), 15_000, 'scheduled backup')
-    r = await admin.get('/api/admin/backups/settings')
-    assert(r.json.last_run?.ok === true, JSON.stringify(r.json.last_run))
+    // The result is stored after the file exists
+    await waitFor(async () => (await admin.get('/api/admin/backups/settings')).json.last_run?.ok === true, 10_000, 'result of the scheduled backup')
     await admin.put('/api/admin/backups/settings', { schedule: 'off' })
   })
   await check('Orphaned upload/temp files are cleaned up', async () => {
