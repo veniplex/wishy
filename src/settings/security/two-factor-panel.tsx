@@ -4,6 +4,8 @@ import { api, errMsg } from '../../api'
 import type { TwoFactorStatus } from '../../account-types'
 import { useAuth } from '../../auth'
 import { fmtDateTime, t, useT } from '../../i18n'
+import { useReachable } from '../../offline/hooks'
+import { NeedsConnection } from '../../offline/ui'
 import { Badge, Banner, Button, Card, FormError, IconButton, useConfirm, useToast } from '../../ui'
 import { isReauthCancelled, useReauth } from './reauth'
 import { RecoveryCodesDialog } from './recovery-codes'
@@ -30,7 +32,8 @@ export function TwoFactorPanel({ forced }: { forced?: boolean }) {
   const [codes, setCodes] = useState<string[] | null>(null)
 
   const load = useCallback(() => api<TwoFactorStatus>('GET', '/api/account/2fa').then(setStatus).catch((e) => setError(errMsg(e))), [])
-  useEffect(() => { void load() }, [load])
+  const reachable = useReachable()
+  useEffect(() => { if (reachable) void load() }, [load, reachable])
 
   const applyStatus = (s: TwoFactorStatus) => {
     const { recovery_codes, ...rest } = s
@@ -54,6 +57,7 @@ export function TwoFactorPanel({ forced }: { forced?: boolean }) {
   const removePasskey = (p: { id: string; name: string }) => guarded({ title: t('security.passkeys.removeTitle', { name: p.name }), text: t('security.passkeys.removeText'), destructive: true }, () => api<TwoFactorStatus>('DELETE', `/api/account/2fa/webauthn/${encodeURIComponent(p.id)}`, {}), t('security.passkeys.removed'))
   const regenerate = () => guarded({ title: t('security.recovery.regenerateTitle'), text: t('security.recovery.regenerateText'), destructive: false }, () => api<TwoFactorStatus>('POST', '/api/account/2fa/recovery/regenerate', {}))
 
+  if (!status && !reachable) return <NeedsConnection />
   if (!status) return <Card>{error ? <FormError>{error}</FormError> : <p className="text-sm text-muted">{t('security.loading')}</p>}</Card>
 
   const supported = passkeysSupported()

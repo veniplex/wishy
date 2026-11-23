@@ -8,10 +8,11 @@ import { PasswordSection } from './account/password'
 import { TwoFactorSection } from './account/two-factor'
 import { LoginMethodsSection } from './account/login-methods'
 import { SessionsSection } from './account/sessions'
+import { OfflineSection } from './account/offline'
 
 /**
  * Settings › Account. Only the order of the sections - each section is its own file in ./account/
- * (profile, email, password, two-factor [slot], login methods, sessions [slot]); new features belong there, not here.
+ * (profile, email, password, two-factor [slot], login methods, sessions [slot], offline & app); new features belong there, not here.
  */
 export function AccountTab() {
   const [sp] = useSearchParams()
@@ -25,6 +26,7 @@ export function AccountTab() {
       <TwoFactorSection />
       <LoginMethodsSection />
       <SessionsSection />
+      <OfflineSection />
     </>
   )
 }

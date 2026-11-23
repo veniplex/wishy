@@ -63,6 +63,8 @@ import deUpdate from './locales/de/update'
 import enUpdate from './locales/en/update'
 import deMaintenance from './locales/de/maintenance'
 import enMaintenance from './locales/en/maintenance'
+import deOffline from './locales/de/offline'
+import enOffline from './locales/en/offline'
 import enCommon from './locales/en/common'
 import enNav from './locales/en/nav'
 import enSettings from './locales/en/settings'
@@ -85,9 +87,9 @@ const isLocale = (v: unknown): v is Locale => v === 'de' || v === 'en'
 
 // ───────────── Catalog ─────────────
 // New namespace: create de/<ns>.ts + en/<ns>.ts and add one line each here (de is the source of truth).
-const de = { common: deCommon, nav: deNav, settings: deSettings, account: deAccount, admin: deAdmin, auth: deAuth, security: deSecurity, adminAuth: deAdminAuth, adminGeneral: deAdminGeneral, adminUsers: deAdminUsers, errors: deErrors, controls: deControls, start: deStart, give: deGive, calendar: deCalendar, gifts: deGifts, finance: deFinance, status: deStatus, spaces: deSpaces, ai: deAi, wishlists: deWishlists, forms: deForms, audit: deAudit, apiKeys: deApiKeys, apiDocs: deApiDocs, aiUsage: deAiUsage, aiPrompts: deAiPrompts, inbox: deInbox, adminSystem: deAdminSystem, backup: deBackup, update: deUpdate, maintenance: deMaintenance }
+const de = { common: deCommon, nav: deNav, settings: deSettings, account: deAccount, admin: deAdmin, auth: deAuth, security: deSecurity, adminAuth: deAdminAuth, adminGeneral: deAdminGeneral, adminUsers: deAdminUsers, errors: deErrors, controls: deControls, start: deStart, give: deGive, calendar: deCalendar, gifts: deGifts, finance: deFinance, status: deStatus, spaces: deSpaces, ai: deAi, wishlists: deWishlists, forms: deForms, audit: deAudit, apiKeys: deApiKeys, apiDocs: deApiDocs, aiUsage: deAiUsage, aiPrompts: deAiPrompts, inbox: deInbox, adminSystem: deAdminSystem, backup: deBackup, update: deUpdate, maintenance: deMaintenance, offline: deOffline }
 type Messages = typeof de
-const en: { [N in keyof Messages]: Record<keyof Messages[N], string> } = { common: enCommon, nav: enNav, settings: enSettings, account: enAccount, admin: enAdmin, auth: enAuth, security: enSecurity, adminAuth: enAdminAuth, adminGeneral: enAdminGeneral, adminUsers: enAdminUsers, errors: enErrors, controls: enControls, start: enStart, give: enGive, calendar: enCalendar, gifts: enGifts, finance: enFinance, status: enStatus, spaces: enSpaces, ai: enAi, wishlists: enWishlists, forms: enForms, audit: enAudit, apiKeys: enApiKeys, apiDocs: enApiDocs, aiUsage: enAiUsage, aiPrompts: enAiPrompts, inbox: enInbox, adminSystem: enAdminSystem, backup: enBackup, update: enUpdate, maintenance: enMaintenance }
+const en: { [N in keyof Messages]: Record<keyof Messages[N], string> } = { common: enCommon, nav: enNav, settings: enSettings, account: enAccount, admin: enAdmin, auth: enAuth, security: enSecurity, adminAuth: enAdminAuth, adminGeneral: enAdminGeneral, adminUsers: enAdminUsers, errors: enErrors, controls: enControls, start: enStart, give: enGive, calendar: enCalendar, gifts: enGifts, finance: enFinance, status: enStatus, spaces: enSpaces, ai: enAi, wishlists: enWishlists, forms: enForms, audit: enAudit, apiKeys: enApiKeys, apiDocs: enApiDocs, aiUsage: enAiUsage, aiPrompts: enAiPrompts, inbox: enInbox, adminSystem: enAdminSystem, backup: enBackup, update: enUpdate, maintenance: enMaintenance, offline: enOffline }
 const CATALOG: Record<Locale, Record<string, Record<string, string>>> = { de, en }
 
 type PluralSuffix = 'zero' | 'one' | 'two' | 'few' | 'many' | 'other'

@@ -14,6 +14,8 @@ export const CSP = [
   "img-src 'self' data: blob:",
   "font-src 'self'",
   "connect-src 'self'",
+  "worker-src 'self'", // the service worker (/sw.js)
+  "manifest-src 'self'",
   "object-src 'none'",
   "base-uri 'self'",
   "form-action 'self'",

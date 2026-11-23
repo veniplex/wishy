@@ -14,6 +14,8 @@ export default {
   'code.space_owner_permissions': 'Nur der Inhaber kann Berechtigungen verwalten',
   'code.personal_space_permissions': 'Im persönlichen Bereich gibt es keine weiteren Mitglieder',
   'network': 'Server nicht erreichbar',
+  'offline': 'Dafür ist eine Verbindung zum Server nötig.',
+  'code.offline_row': 'Dieser Eintrag muss zuerst synchronisiert werden',
   'unknown': 'Unbekannter Fehler',
   'downloadFailed': 'Download fehlgeschlagen',
   'unreachable': 'Server nicht erreichbar: {detail}',
@@ -275,4 +277,7 @@ export default {
   'login.account_exists': 'Zu dieser E-Mail-Adresse gibt es schon ein Konto mit Passwort. Melde dich mit deinem Passwort an und verknüpfe Google danach unter Einstellungen › Konto.',
   'login.google_wrong_account': 'Das ist nicht das mit deinem Konto verknüpfte Google-Konto. Bitte wähle das richtige aus.',
   'code.api_key_space_restricted': 'Dieser Schlüssel ist auf einen Bereich beschränkt und darf hier nicht zugreifen',
+  'code.op_id_invalid': 'Die Änderung konnte nicht eindeutig zugeordnet werden',
+  'code.op_id_reused': 'Diese Änderung wurde bereits für eine andere Aktion verwendet',
+  'code.space_gone': 'Der Bereich dieser Änderung ist nicht mehr verfügbar',
 } as const

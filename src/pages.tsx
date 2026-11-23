@@ -42,8 +42,8 @@ function OccasionCard({ o }: { o: Occasion }) {
         <Badge tone={chip.tone}>{chip.text}</Badge>
       </div>
       <div className="display-num text-4xl leading-none">{countdown(days)}</div>
-      <div className="flex items-center gap-3">
-        <div className="flex gap-2 flex-wrap">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <div className="flex gap-2 shrink-0">
           {st.people.slice(0, 5).map((id) => <Avatar key={id} p={person(id)} size={32} ring={st.missing.includes(id) ? 'var(--accent)' : 'var(--ok)'} />)}
         </div>
         <div className="text-sm text-muted leading-snug min-w-0">{status}</div>

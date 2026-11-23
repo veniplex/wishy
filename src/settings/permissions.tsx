@@ -3,6 +3,7 @@ import { api, errMsg, spaceLabel, type Member } from '../api'
 import { useAuth } from '../auth'
 import { PERMISSION_KEYS, type PermissionKey, type SpacePermissions } from '../lib'
 import { t, useT, type TKey } from '../i18n'
+import { useOnData } from '../offline/hooks'
 import { Switch } from '../controls'
 import { UserAvatar } from '../user-avatar'
 import { Badge, Card, FormError, List, Row, Section, useToast } from '../ui'
@@ -50,6 +51,7 @@ export function SpacePermissionsSection() {
     }
   }, [sid])
   useEffect(() => { setMembers(null); setOpen(null); void load() }, [load])
+  useOnData(load)
 
   const setMember = async (m: Member, key: PermissionKey, on: boolean) => {
     try {

@@ -4,7 +4,7 @@ import { occasionIconByName } from './occasion-icons'
 import { useOccasionTypes, useStore } from './store'
 import { t, useT, type TKey, type TParams } from './i18n'
 import { GIFT_STATUS, costFor, countdown, daysUntil, fmtDate, isCommitted, isLeftOutBirthday, joinNames, statusInfo, sum, type Gift, type Item, type Occasion } from './lib'
-import { Badge, Button, IconButton, Menu, MenuItem, Money, Progress, Row, RowLink, Stars, Thumb } from './ui'
+import { Badge, Button, IconButton, Menu, MenuItem, Money, Progress, Row, RowLink, Stars, Thumb, tintOf } from './ui'
 import { CostSplit } from './split'
 
 /** Re-exported for the calendar views */
@@ -165,7 +165,7 @@ export function IdeaCard({ i }: { i: Item }) {
   const inactive = isInactive(state)
   return (
     <article className={`card p-3 pb-4 flex flex-col gap-3 min-w-0 ${inactive ? 'opacity-70' : ''}`}>
-      <button type="button" className="media h-28 rounded-2xl overflow-hidden grid place-items-center cursor-pointer text-muted" style={{ background: `var(--t${(i.id % 5) + 1})` }} onClick={() => open({ type: 'item', initial: i })} aria-label={t('give.item.editAria', { title: i.title })}>
+      <button type="button" className="media h-28 rounded-2xl overflow-hidden grid place-items-center cursor-pointer text-muted" style={{ background: tintOf(i.id) }} onClick={() => open({ type: 'item', initial: i })} aria-label={t('give.item.editAria', { title: i.title })}>
         {i.image_url ? <img src={i.image_url} alt="" loading="lazy" className="size-full object-cover" /> : (i.mentioned ? <MessageCircle size={38} strokeWidth={1.5} className="text-ink" /> : <Lightbulb size={38} strokeWidth={1.5} className="text-ink" />)}
       </button>
       <div className="px-1.5 flex flex-col gap-2 flex-1">

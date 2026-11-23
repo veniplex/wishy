@@ -1,7 +1,7 @@
 /** Person page (`/gifting/:id`): the main place to plan gifts – one block per upcoming occasion, then everything without an occasion. */
 import { useState } from 'react'
 import { CalendarHeart, Heart, Lightbulb, Link2, Lock, Pencil, Users } from 'lucide-react'
-import { useParams } from 'react-router-dom'
+import { Navigate, useParams } from 'react-router-dom'
 import { useLinkOptions, useOccasionTypes, useStore } from './store'
 import { t } from './i18n'
 import { RELATION_GROUPS, costFor, countdown, daysUntil, fmtDate, giftDateOf, giftYear, groupOf, isLive, nextBirthday, sum, type Occasion, type Person } from './lib'
@@ -186,6 +186,7 @@ export function PersonDetail() {
   const links = useLinkOptions()
   const [tab, setTab] = useState<Tab>('plan')
   const p = person(Number(personId))
+  if (p && p.id !== Number(personId)) return <Navigate to={`/gifting/${p.id}`} replace /> // created offline, synced meanwhile
   if (!p) return <Page><EmptyState icon={Users} action={<Button size="sm" to="/gifting">{t('give.detail.back')}</Button>}>{t('give.detail.notFound')}</EmptyState></Page>
   if (p.is_me) return <Page><EmptyState icon={Heart} action={<Button size="sm" to="/wishlists">{t('give.detail.toLists')}</Button>}>{t('give.detail.isMe')}</EmptyState></Page>
   const openCount = s.items.filter((i) => i.person_id === p.id && itemState(i) === 'open').length

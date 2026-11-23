@@ -4,6 +4,7 @@ import {
   userSettings, setUserSetting, logGiftEvent, RELATIONSHIP_GROUPS,
 } from './db.js'
 import { requireAuth } from './session.js'
+import { noteCreated } from './ops-sink.js'
 import { spaceCtx, addMemberPerson } from './spaces.js'
 import { linkedWishlists, hasAccessToOwner, createWishlist, addWish } from './wishlists.js'
 import { loadDemo } from './demo.js'
@@ -533,7 +534,7 @@ export function planningRoutes(app) {
     checkLink(ctx, null, body.linked_user_id)
     if (body.linked_user_id === '') body.linked_user_id = null
     cleanRelationship(body)
-    tx(() => insert('persons', body, ctx.spaceId))
+    tx(() => noteCreated(insert('persons', body, ctx.spaceId)))
   })
   guarded('manage_persons', 'put', '/api/persons/:id', (ctx, req) => {
     const p = ownedPerson(ctx, req.params.id)
@@ -596,7 +597,7 @@ export function planningRoutes(app) {
     body.audience = cleanAudience(req.body.audience) ?? defaultAudience(ctx.spaceId, body.type ?? 'other')
     const people = occasionPeople(ctx, req.body)
     tx(() => {
-      const oid = insert('occasions', body, ctx.spaceId)
+      const oid = noteCreated(insert('occasions', body, ctx.spaceId))
       setOccasionParticipants(oid, body.audience, people, ctx.hidden)
     })
   })
@@ -656,7 +657,7 @@ export function planningRoutes(app) {
   guarded('manage_gifts', 'post', '/api/items', (ctx, req) => {
     requireFields(req.body, 'title')
     const body = { ...req.body }
-    createIdea(ctx, body) // without person_id: idea in the inbox
+    noteCreated(createIdea(ctx, body)) // without person_id: idea in the inbox
   })
   guarded('manage_gifts', 'put', '/api/items/:id', (ctx, req) => {
     const it = ownedItem(ctx, req.params.id)
@@ -701,7 +702,7 @@ export function planningRoutes(app) {
     tx(() => {
       if (idea?.image_url && !body.image_url) body.image_url = idea.image_url
       autoDates(body)
-      const gid = insert('gifts', body, ctx.spaceId)
+      const gid = noteCreated(insert('gifts', body, ctx.spaceId))
       setGiftLinks(gid, body)
       logGiftEvent(gid, ctx.userId, 'created', { title: body.title })
     })

@@ -2,6 +2,8 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { Navigate, useLocation } from 'react-router-dom'
 import { WifiOff } from 'lucide-react'
 import { ApiError, api, errMsg, getSpaceId, setSpaceId, setUnauthorizedHandler, type Me, type Providers, type SpaceInfo, type User } from './api'
+import { setSession, signOut } from './offline/engine'
+import { onReconnect } from './offline/sync'
 import { Button, EmptyState, Page, PageSkeleton } from './ui'
 import { setAppName, setServerLocale, setUserLocale, t } from './i18n'
 
@@ -64,7 +66,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setSpace(id)
   }, [])
 
+  const userRef = useRef<User | null>(null)
+  userRef.current = user
   const applyMe = useCallback((me: Me) => {
+    setSession(me)
+    // The session of this browser now belongs to someone else (signed in in another tab): start over with their data
+    if (userRef.current && userRef.current.id !== me.user.id) location.reload()
     setUser(me.user)
     setSharedUnseen(me.shared_unseen ?? 0)
     setSpaces(me.spaces)
@@ -83,17 +90,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }),
         api<Providers>('GET', '/api/auth/providers').catch(() => null),
       ])
-      setProviders(prov)
+      if (prov) setProviders(prov)
       if (me === null) { setUser(null); setStatus('anon') }
       else if ('setup' in me) { setUser(null); setStatus('setup') }
       else applyMe(me)
     } catch (e) {
       setBootError(errMsg(e))
-      setStatus('error')
+      setStatus((s) => (s === 'ready' ? s : 'error')) // a running app goes on with what it has
     }
   }, [applyMe])
 
   useEffect(() => { void refresh() }, [refresh])
+  // Connection is back: is the session still valid?
+  useEffect(() => onReconnect(() => void refresh()), [refresh])
 
   // 401 on any call: back to login, remember the target
   useEffect(() => {
@@ -124,7 +133,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     applyMe,
     switchSpace: (id) => pick(spacesRef.current, id),
     logout: async () => {
-      try { await api('POST', '/api/auth/logout') } catch { /* session is gone anyway */ }
+      await signOut().catch(() => {}) // local data is deleted; without a connection the server is told on the next contact
       setUser(null)
       setSpaces([])
       setStatus('anon')

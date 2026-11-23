@@ -23,6 +23,8 @@ import { maintenanceGate, maintenanceRoutes, maintenanceStartup } from './mainte
 import { launcherHopHeaders } from './launcher-hop.js'
 import { backupRoutes } from './backup.js'
 import { updateRoutes } from './update.js'
+import { offlineOps } from './offline-ops.js'
+import { manifestRoutes } from './manifest.js'
 
 const app = express()
 app.disable('x-powered-by')
@@ -33,6 +35,7 @@ applyTrustProxy(app)
 app.use(securityHeaders) // Security headers for EVERYTHING (API, frontend, images), see headers.js
 healthRoutes(app)
 maintenanceRoutes(app) // GET /api/maintenance (public)
+manifestRoutes(app) // GET /manifest.webmanifest (public)
 app.use(maintenanceGate) // Maintenance mode BEFORE all routes (also /api/v1): 503 except for the acting admin's session
 
 app.use('/api/v1', apiV1Router) // public API: own key authentication, without cookies/CSRF
@@ -57,7 +60,7 @@ const jsonBody = (req, res, next) => {
 app.use('/api', sessionMiddleware, jsonBody, (req, res, next) => {
   req.body ??= {}
   next()
-}, auditMiddleware, twoFactorGate)
+}, auditMiddleware, twoFactorGate, offlineOps)
 
 startup()
 
@@ -113,13 +116,27 @@ app.use('/api', (req, res) => res.status(404).json({ error: 'Not found', code: '
 // ---- Frontend (production build) ----
 const dist = path.resolve('dist')
 if (fs.existsSync(dist)) {
-  app.use(express.static(dist, { index: false }))
+  // Hashed build files (/assets/<name>-<hash>.<ext>) never change: cache them for a year. The stable names (theme-init.js, public icons)
+  // and the service worker (/sw.js, must be re-checked on every start) are revalidated.
+  const HASHED_ASSET = /^\/assets\/.+-[A-Za-z0-9_-]{8}\.[a-z0-9]+$/
+  app.use(
+    express.static(dist, {
+      index: false,
+      setHeaders(res, file) {
+        const rel = '/' + path.relative(dist, file).split(path.sep).join('/')
+        if (rel === '/sw.js') res.setHeader('Cache-Control', 'no-cache')
+        else if (HASHED_ASSET.test(rel)) res.setHeader('Cache-Control', 'public, max-age=31536000, immutable')
+      },
+    }),
+  )
+  // A missing build file is a 404, not the app shell (a stale /assets/x.js must not be answered with HTML; same for the service worker)
+  app.get(/^\/(?:(?:assets|icons)\/.*|sw\.js)$/, (req, res) => res.status(404).type('text/plain').send('Not found'))
   // SPA fallback: catch-all (everything except /api/) serves index.html so every client route reaches the router.
   // index.html gets the name from the settings in <title> (otherwise the default name flashes before the script starts).
   const escHtml = (v) => String(v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c])
   app.get(/^(?!\/api\/).*/, (req, res, next) => {
     try {
-      const html = fs.readFileSync(path.join(dist, 'index.html'), 'utf8').replace(/<title>[^<]*<\/title>/, `<title>${escHtml(getSys('app_name') || 'Wishy')}</title>`)
+      const html = fs.readFileSync(path.join(dist, 'index.html'), 'utf8').replace(/<title>[^<]*<\/title>/, `<title>${escHtml(getSys('app_name') || 'Wishy')}</title>`).replace('name="apple-mobile-web-app-title" content="Wishy"', `name="apple-mobile-web-app-title" content="${escHtml(getSys('app_name') || 'Wishy')}"`)
       res.type('html').set('Cache-Control', 'no-cache').send(html)
     } catch (e) {
       next(e)

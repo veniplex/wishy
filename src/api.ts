@@ -1,6 +1,8 @@
 /** Lean API client: cookie session, `X-Space` header, uniform errors. */
 import { t, type TKey, type TParams } from './i18n'
 import { reportMaintenance } from './maintenance-state'
+import { currentUser, request, sessionLost } from './offline/engine'
+import { setReplyHook, type Reply } from './offline/net'
 import type { SpacePermissions } from './lib'
 
 export class ApiError extends Error {
@@ -32,9 +34,8 @@ export function setSpaceId(id: number | null) {
 let onUnauthorized: (() => void) | null = null
 export const setUnauthorizedHandler = (fn: (() => void) | null) => { onUnauthorized = fn }
 
-const headers = (json: boolean): Record<string, string> => ({
+const headers = (): Record<string, string> => ({
   'X-Requested-With': 'wishlist',
-  ...(json ? { 'Content-Type': 'application/json' } : {}),
   ...(currentSpace != null ? { 'X-Space': String(currentSpace) } : {}),
 })
 
@@ -57,7 +58,7 @@ export function errorText(code: unknown, serverMsg: unknown, rawParams?: unknown
       }
     }
     // permission_denied: {permission} becomes the localized name of the permission
-    if (typeof params.permission === 'string' && /^w+$/.test(params.permission)) {
+    if (typeof params.permission === 'string' && /^\w+$/.test(params.permission)) {
       const pk = `settings.space.perms.${params.permission}` as TKey
       const name = t(pk)
       params.permission = name !== pk ? name : params.permission
@@ -69,31 +70,40 @@ export function errorText(code: unknown, serverMsg: unknown, rawParams?: unknown
   return typeof serverMsg === 'string' && serverMsg ? serverMsg : undefined
 }
 
-/** JSON call. Throws ApiError (English message from the server); on 401 with code "auth" the login handler is triggered. */
+setReplyHook((r) => {
+  if (r.status === 401 && r.data?.code === 'auth') {
+    sessionLost()
+    onUnauthorized?.()
+  }
+  if (r.status === 503 && r.data?.code === 'maintenance') reportMaintenance(r.data.maintenance)
+})
+
+/** The server could not be reached (and there is no offline answer) */
+export const isOffline = (e: unknown) => e instanceof ApiError && e.status === 0
+
+async function call(method: string, url: string, body: unknown, space: number | undefined): Promise<Reply> {
+  const r = await request(method, url, body, space ?? currentSpace)
+  if (r.status === 0) throw new ApiError(t(currentUser() !== null && method !== 'GET' ? 'errors.offline' : 'errors.network'), 0, 'offline')
+  if (r.status >= 400) throw new ApiError(errorText(r.data?.code, r.data?.error, r.data?.params) || r.statusText || t('errors.unknown'), r.status, r.data?.code)
+  return r
+}
+
+/**
+ * JSON call. Throws ApiError (English message from the server); on 401 with code "auth" the login handler is triggered.
+ * Without a connection the planning data and wishlists come from the local cache and their changes are queued (see src/offline).
+ */
 export async function api<T = unknown>(method: string, url: string, body?: unknown, opts?: { space?: number }): Promise<T> {
-  let res: Response
-  try {
-    res = await fetch(url, {
-      method,
-      credentials: 'same-origin',
-      headers: { ...headers(body !== undefined), ...(opts?.space != null ? { 'X-Space': String(opts.space) } : {}) },
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-    })
-  } catch {
-    throw new ApiError(t('errors.network'), 0)
-  }
-  const data = await res.json().catch(() => ({}))
-  if (!res.ok) {
-    if (res.status === 401 && data?.code === 'auth') onUnauthorized?.()
-    if (res.status === 503 && data?.code === 'maintenance') reportMaintenance(data.maintenance)
-    throw new ApiError(errorText(data?.code, data?.error, data?.params) || res.statusText || t('errors.unknown'), res.status, data?.code)
-  }
-  return data as T
+  return (await call(method, url, body, opts?.space)).data as T
+}
+/** Like `api`, with the id of the created row (a temporary negative one while offline) */
+export async function apiCreate<T = unknown>(url: string, body: unknown): Promise<{ data: T; id: number | null }> {
+  const r = await call('POST', url, body, undefined)
+  return { data: r.data as T, id: r.createdId }
 }
 
 /** Load a file (e.g. export of the current space) with the `X-Space` header and save it as a download. */
 export async function download(url: string, filename: string) {
-  const res = await fetch(url, { credentials: 'same-origin', headers: headers(false) })
+  const res = await fetch(url, { credentials: 'same-origin', headers: headers() }).catch(() => { throw new ApiError(t('errors.offline'), 0, 'offline') })
   if (!res.ok) {
     const data = await res.json().catch(() => ({}))
     throw new ApiError(errorText(data?.code, data?.error, data?.params) || t('errors.downloadFailed'), res.status, data?.code)

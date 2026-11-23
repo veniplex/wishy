@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Laptop, Smartphone } from 'lucide-react'
-import { api, errMsg } from '../../api'
+import { api, errMsg, isOffline } from '../../api'
+import { useReachable } from '../../offline/hooks'
+import { NeedsConnection } from '../../offline/ui'
 import { fmtDateTime, t, useT } from '../../i18n'
 import { Badge, Button, Card, EmptyState, Section, useConfirm, useToast } from '../../ui'
 
@@ -21,8 +23,9 @@ export function SessionsSection() {
   const confirm = useConfirm()
   const toast = useToast()
   const [list, setList] = useState<SessionInfo[] | null>(null)
-  const load = useCallback(() => api<SessionInfo[]>('GET', '/api/account/sessions').then(setList).catch((e) => toast(errMsg(e), 'bad')), [toast])
-  useEffect(() => { void load() }, [load])
+  const reachable = useReachable()
+  const load = useCallback(() => api<SessionInfo[]>('GET', '/api/account/sessions').then(setList).catch((e) => { if (!isOffline(e)) toast(errMsg(e), 'bad') }), [toast])
+  useEffect(() => { if (reachable) void load() }, [load, reachable])
 
   const revoke = async (s: SessionInfo) => {
     try {
@@ -50,6 +53,7 @@ export function SessionsSection() {
       action={others > 0 ? <Button size="sm" onClick={revokeOthers}>{t('account.sessions.revokeOthers')}</Button> : undefined}
     >
       <p className="text-sm text-muted -mt-2">{t('account.sessions.sub')}</p>
+      {!reachable && !list && <NeedsConnection />}
       {list && list.length === 0 && <EmptyState icon={Laptop}>{t('account.sessions.empty')}</EmptyState>}
       {(list ?? []).map((s) => {
         const mobile = /Android|iOS/.test(s.os)

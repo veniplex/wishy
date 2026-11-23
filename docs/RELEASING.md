@@ -75,7 +75,7 @@ Check, wait for the environment approval, verify the result (section 4). Fix pro
      digest matches `image.digest` in `wishy-<v>.release.json`. Stable versions additionally carry `latest`
      and `<major>.<minor>`; pre-releases do not.
    - Signatures: the `sign` job has already verified them against `launcher/update-key.pub`; the end-to-end check is the staging test.
-6. **Staging test:** Start a throwaway instance with the previous version (instructions: [operations.md](operations.md) §10),
+6. **Staging test:** Start a throwaway instance with the previous version (instructions: [operations.md](operations.md) §11),
    *Admin › Updates* (channel "Pre-releases" for rc), update. Expected: the update completes, the version is correct.
 
 ## 5. Changing the key

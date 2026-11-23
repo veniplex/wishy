@@ -11,6 +11,8 @@ import { useFeatures } from './features'
 import { PersonPicker } from './pickers'
 import { t, useT, type TKey } from './i18n'
 import { useUpdateAvailability } from './update-banner'
+import { useOffline } from './offline/hooks'
+import { LogoutDialog, OfflineStatus } from './offline/ui'
 
 /** Tabs under "Wishlists"; "Shared with me" shows newly shared lists as a badge */
 export const listTabs = (unseen: number): TabItem[] => [
@@ -92,8 +94,16 @@ function AvatarMenu() {
   const { user, logout } = useAuth()
   const nav = useNavigate()
   const { version: updateVersion } = useUpdateAvailability()
+  const { ops } = useOffline()
+  const [asking, setAsking] = useState(false)
+  const signOut = async () => {
+    await logout()
+    rememberNext('/') // RequireAuth remembers the old page on sign-out – reset it after signing out
+    nav('/login', { replace: true })
+  }
   const initials = (user?.name ?? '?').trim().split(/\s+/).slice(0, 2).map((w) => w.charAt(0)).join('').toUpperCase()
   return (
+    <>
     <Menu
       trigger={(p) => (
         <>
@@ -110,10 +120,12 @@ function AvatarMenu() {
           </div>
           <MenuItem icon={SettingsIcon} tint={4} label={t('nav.avatar.settings')} to="/settings" onClick={close} />
           {user?.role === 'admin' && <MenuItem icon={ShieldCheck} tint={3} label={t('nav.avatar.admin')} hint={updateVersion ? t('update.menu.hint') : undefined} to="/admin" onClick={close} />}
-          <MenuItem icon={LogOut} tint={1} label={t('nav.avatar.logout')} onClick={async () => { close(); await logout(); rememberNext('/') /* RequireAuth remembers the old page on sign-out – reset it after signing out */; nav('/login', { replace: true }) }} />
+          <MenuItem icon={LogOut} tint={1} label={t('nav.avatar.logout')} onClick={() => { close(); if (ops.length) setAsking(true); else void signOut() }} />
         </>
       )}
     </Menu>
+    {asking && <LogoutDialog onClose={() => setAsking(false)} onConfirm={() => { setAsking(false); void signOut() }} />}
+    </>
   )
 }
 
@@ -124,8 +136,9 @@ export function TopBar() {
   const [prot, setProt] = useState(false)
   return (
     <header className="mx-auto w-full max-w-[1120px] px-4 md:px-10 pt-3 md:pt-6 space-y-3">
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <Link to="/" aria-label={t('nav.brand.home', { appName })} className="min-w-0"><Brand name={appName} /></Link>
+        <OfflineStatus />
         <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
           <SpaceButton />
           <NewMenu />

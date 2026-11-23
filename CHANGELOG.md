@@ -4,7 +4,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versio
 The section of a version is used automatically as the release notes when releasing
 (`scripts/release-notes.mjs`); the heading must read exactly `## [x.y.z]`.
 
-## [1.0.0] – unreleased
+## [1.0.0] – 2026-11-23
 
 First public version.
 
@@ -13,11 +13,15 @@ First public version.
 - Reserving by others without the recipient seeing it; "Reserve & plan" creates a gift in the chosen space.
 - Gift ideas, people, occasions (birthdays and more), gift status, shared gifts with cost shares, and budgets.
 - Person-centred planning: the person page is the main planning place (one block per occasion, plus gifts and ideas without an occasion); occasions are grouped by person; occasions apply to everyone or to selected people, and single people can be left out; every gift needs a recipient; birthdays come from the person.
+- Calendar with month grid and list, recurring occasions, and your own occasion types.
 - Link import with preview (title, image, price from JSON-LD/OpenGraph/Microdata), using headless Chromium when needed.
 - Optional AI assistance (Anthropic, OpenAI, Google) and quick capture from text.
 
+### Offline
+- Installable app (PWA): starts and shows your data without a connection; changes made offline are synchronised later, conflicting edits are shown for you to decide.
+
 ### Spaces and accounts
-- Spaces for shared planning with invite links; export/import per space.
+- Spaces for shared planning with invite links and permissions per member; export/import per space.
 - Sign-in with email and password, 2FA (TOTP), passkeys (WebAuthn) and Google; registration open, invite-only or closed.
 - Administration: user management, audit log, system statistics, API keys and REST API (`/api/v1`, OpenAPI).
 - UI in English and German.

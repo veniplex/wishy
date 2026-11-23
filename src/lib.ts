@@ -225,7 +225,7 @@ export const joinNames = (names: string[]) =>
   names.length <= 1 ? (names[0] ?? '') : `${names.slice(0, -1).join(', ')} & ${names[names.length - 1]}`
 
 const PALETTE = ['#f59e0b', '#10b981', '#3b82f6', '#ec4899', '#8b5cf6', '#ef4444', '#14b8a6', '#f97316', '#6366f1', '#84cc16']
-export const personColor = (p: Person) => p.color || PALETTE[p.id % PALETTE.length]
+export const personColor = (p: Person) => p.color || PALETTE[Math.abs(p.id) % PALETTE.length]
 
 /** Relationship groups (order = display order) */
 export const RELATION_GROUPS: { id: string; label: string }[] = ['partner', 'family', 'friends', 'work', 'other'].map((id) => lazyLabel({ id }, `give.group.${id}` as TKey))

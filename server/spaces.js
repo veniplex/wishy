@@ -137,6 +137,8 @@ export function spaceCtx(req) {
         .get(sid, userId)
     }
   }
+  // An offline change (X-Op-Id) for a space the user left or that was deleted must never land in the personal space instead
+  if (!row && h && req.get('X-Op-Id')) throw forbidden('This space is no longer available', 'space_gone')
   if (!row) {
     row = db
       .prepare('SELECT s.id, s.name, s.personal, m.role, m.permissions FROM spaces s JOIN space_members m ON m.space_id=s.id WHERE m.user_id=? AND s.personal=1 ORDER BY s.id LIMIT 1')

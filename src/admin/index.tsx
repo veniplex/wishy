@@ -4,6 +4,8 @@ import { DatabaseBackup, KeyRound, LogIn, RefreshCw, ScrollText, Server, Setting
 import { t, useT, type TKey } from '../i18n'
 import { Page, PageHeader } from '../ui'
 import { UpdateBanner, useUpdateAvailability } from '../update-banner'
+import { useReachable } from '../offline/hooks'
+import { NeedsConnection } from '../offline/ui'
 import { AdminOnly } from './shared'
 import { AdminGeneral } from './general'
 import { AdminLogin } from './login'
@@ -34,6 +36,7 @@ export function AdminLayout() {
   const nav = useRef<HTMLElement>(null)
   const { pathname } = useLocation()
   const { version: updateVersion } = useUpdateAvailability()
+  const reachable = useReachable()
   // Phone: keep the active section visible in the scrollable bar
   useEffect(() => { nav.current?.querySelector('[aria-current="page"]')?.scrollIntoView({ inline: 'center', block: 'nearest' }) }, [pathname])
   return (
@@ -50,7 +53,7 @@ export function AdminLayout() {
               </NavLink>
             ))}
           </nav>
-          <div className="min-w-0"><Outlet /></div>
+          <div className="min-w-0">{reachable ? <Outlet /> : <NeedsConnection />}</div>
         </div>
       </Page>
     </AdminOnly>

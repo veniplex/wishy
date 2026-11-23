@@ -3,6 +3,7 @@ import { useLocation } from 'react-router-dom'
 import { CircleArrowUp, X } from 'lucide-react'
 import { api } from './api'
 import { useAuth } from './auth'
+import { useReachable } from './offline/hooks'
 import { t } from './i18n'
 import { Banner, Button, IconButton } from './ui'
 
@@ -33,6 +34,7 @@ const readDismissed = () => { try { return localStorage.getItem(DISMISS_KEY) } c
 export function UpdateAvailabilityProvider({ children }: { children: ReactNode }) {
   const { user, status } = useAuth()
   const admin = status === 'ready' && user?.role === 'admin'
+  const reachable = useReachable()
   const [version, setVersion] = useState<string | null>(null)
   const [dismissedVersion, setDismissedVersion] = useState<string | null>(readDismissed)
 
@@ -42,12 +44,13 @@ export function UpdateAvailabilityProvider({ children }: { children: ReactNode }
   }, [])
   useEffect(() => {
     if (!admin) { setVersion(null); return }
+    if (!reachable) return
     let alive = true
     const load = () => api<UpdateHint>('GET', '/api/admin/update/status').then((s) => { if (alive) apply(s) }).catch(() => {})
     void load()
     const id = setInterval(load, 20 * 60_000)
     return () => { alive = false; clearInterval(id) }
-  }, [admin, apply])
+  }, [admin, apply, reachable])
 
   const value = useMemo<Availability>(() => ({
     version,

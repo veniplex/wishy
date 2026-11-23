@@ -4,6 +4,7 @@ import { requireAuth } from './session.js'
 import { spaceCtx, memberPermissions } from './spaces.js'
 import { requirePermission } from './permissions.js'
 import { bad, notFound, forbidden, conflict, newToken, reqId, numId, cleanEmail } from './util.js'
+import { noteCreated, noteRef } from './ops-sink.js'
 
 const iso = () => new Date().toISOString()
 const get = (sql, ...p) => db.prepare(sql).get(...p)
@@ -157,6 +158,14 @@ function ownedWish(req, id) {
   return w
 }
 
+/** Current response of an offline-capable route for a repeated op (see offline-ops.js); 404 when the target is gone or not the user's. */
+export function replayView(req, kind, id) {
+  if (kind === 'list') return myListView(req, ownedList(req, id))
+  if (kind === 'detail') return detailView(req, ownedList(req, id))
+  if (kind === 'wish') return detailView(req, loadList(ownedWish(req, id).wishlist_id))
+  throw new Error(`unknown view ${kind}`)
+}
+
 export function createWishlist(userId, { title, description, event_date } = {}) {
   const t = String(title ?? '').trim().slice(0, 120)
   if (!t) throw bad('Please enter a title', 'title_required')
@@ -276,7 +285,7 @@ export function wishlistRoutes(app) {
   })
 
   app.post('/api/wishlists', requireAuth, (req, res) => {
-    const id = createWishlist(req.user.id, req.body)
+    const id = noteCreated(createWishlist(req.user.id, req.body))
     res.json(myListView(req, loadList(id)))
   })
 
@@ -285,7 +294,7 @@ export function wishlistRoutes(app) {
   app.get('/api/wishlists/:id', requireAuth, (req, res) => {
     const list = loadList(reqId(req.params.id, 'Wishlist not found', 'wishlist_not_found'))
     if (!list || !viaFor(list, req.user.id)) throw notFound('Wishlist not found', 'wishlist_not_found')
-    res.json(detailView(req, list, { touch: true }))
+    res.json(detailView(req, list, { touch: req.query.prefetch === undefined })) // the client's background copy for offline use does not count as "seen"
   })
 
   app.put('/api/wishlists/:id', requireAuth, (req, res) => {
@@ -329,7 +338,7 @@ export function wishlistRoutes(app) {
   // ---- Wishes ----
   app.post('/api/wishlists/:id/wishes', requireAuth, (req, res) => {
     const l = ownedList(req, req.params.id)
-    addWish(l.id, wishData(req.body || {}, false))
+    noteCreated(addWish(l.id, wishData(req.body || {}, false)))
     res.json(detailView(req, loadList(l.id)))
   })
   app.put('/api/wishes/:id', requireAuth, (req, res) => {
@@ -342,6 +351,7 @@ export function wishlistRoutes(app) {
   })
   app.delete('/api/wishes/:id', requireAuth, (req, res) => {
     const w = ownedWish(req, req.params.id)
+    noteRef(w.wishlist_id)
     tx(() => {
       db.prepare('DELETE FROM wishes WHERE id=?').run(w.id)
       bump(w.wishlist_id)

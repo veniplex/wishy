@@ -29,7 +29,7 @@ const dayBefore = (days, now) => new Date(now - days * DAY).toISOString().slice(
  */
 export function runRetention(ctx = { via: 'system' }, { now = Date.now() } = {}) {
   const cfg = getRetention()
-  const res = { audit_deleted: 0, ai_rows_rolled_up: 0, ai_days_rolled_up: 0, sessions_deleted: 0 }
+  const res = { audit_deleted: 0, ai_rows_rolled_up: 0, ai_days_rolled_up: 0, sessions_deleted: 0, client_ops_deleted: 0 }
   try {
     if (cfg.retention_audit_days > 0) {
       const cutoff = new Date(now - cfg.retention_audit_days * DAY).toISOString()
@@ -44,6 +44,8 @@ export function runRetention(ctx = { via: 'system' }, { now = Date.now() } = {})
       const cutoff = now - cfg.retention_sessions_days * DAY
       res.sessions_deleted = Number(db.prepare('DELETE FROM sessions WHERE expires_at<? OR created_at<?').run(cutoff, cutoff).changes)
     }
+    // Idempotency records of offline writes (offline-ops.js) are only needed while a client may still repeat a request
+    res.client_ops_deleted = Number(db.prepare('DELETE FROM client_ops WHERE created_at < ?').run(new Date(now - 90 * DAY).toISOString().slice(0, 19).replace('T', ' ')).changes)
     const at = new Date(now).toISOString()
     setSys('retention_last_run', { at, ...res, trigger: ctx?.via === 'system' ? 'auto' : 'manual' })
     audit(ctx, 'retention.cleanup', { details: { ...cfg, ...res }, target: { type: 'system' } })

@@ -25,7 +25,7 @@
     "release:build": "node scripts/build-release.mjs --build",
     "test:e2e": "node scripts/test-update-e2e.mjs",
     "release:sign": "node scripts/sign-release.mjs release --verify-with launcher/update-key.pub",
-    "test:smoke": "node scripts/tests/smoke-core.mjs && node scripts/tests/smoke-auth.mjs && node scripts/tests/smoke-platform.mjs && node scripts/tests/occasion-types.mjs && node scripts/tests/space-permissions.mjs && node scripts/tests/person-planning.mjs"
+    "test:smoke": "node scripts/tests/smoke-core.mjs && node scripts/tests/smoke-auth.mjs && node scripts/tests/smoke-platform.mjs && node scripts/tests/occasion-types.mjs && node scripts/tests/space-permissions.mjs && node scripts/tests/person-planning.mjs && node scripts/tests/offline-sync.mjs && node scripts/tests/offline-client.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.12.0",

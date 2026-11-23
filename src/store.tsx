@@ -1,8 +1,10 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { WifiOff } from 'lucide-react'
 import { type Gift, type Item, type Occasion, type OccasionType, type Person, type PermissionKey, type State } from './lib'
-import { api, errMsg, errorText, type Member, type WishlistsOverview } from './api'
+import { api, apiCreate, errMsg, errorText, type Member, type WishlistsOverview } from './api'
 import { useAuth } from './auth'
+import { realId, realIds } from './offline/engine'
+import { useIds, useOnData } from './offline/hooks'
 import { fmtMoney, t, useLocale, useT, type TKey } from './i18n'
 import { Button, EmptyState, Page, PageSkeleton, useToast } from './ui'
 
@@ -66,13 +68,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [raw, setRaw] = useState<State | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [dialog, setDialog] = useState<Dialog | null>(null)
-  const [hidden, setHiddenState] = useState<number[]>(() => {
+  const [hiddenRaw, setHiddenState] = useState<number[]>(() => {
     try {
       return JSON.parse(localStorage.getItem('hiddenPersons') || '[]')
     } catch {
       return []
     }
   })
+  const ids = useIds()
+  // Ids of persons created offline become real ones after the sync
+  const hidden = useMemo(() => realIds({ person_ids: hiddenRaw }).person_ids, [hiddenRaw, ids])
+  useEffect(() => { if (hidden !== hiddenRaw) localStorage.setItem('hiddenPersons', JSON.stringify(hidden)) }, [hidden, hiddenRaw])
 
   const request = useCallback(async <T,>(method: string, url: string, body?: unknown) => {
     try {
@@ -101,13 +107,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     return data.occasion_types.find((x) => !before.has(x.id))?.key ?? null
   }, [request])
   const create = useCallback(async (kind: 'persons' | 'occasions', body: Record<string, unknown>) => {
-    const before = new Set((rawRef.current?.[kind] ?? []).map((x) => x.id))
-    const data = await request<State>('POST', `/api/${kind}`, body)
-    if (!data) return null
-    setRaw(data)
-    const added = data[kind].filter((x) => !before.has(x.id)).map((x) => x.id)
-    return added.length ? Math.max(...added) : null
-  }, [request])
+    try {
+      const { data, id } = await apiCreate<State>(`/api/${kind}`, body)
+      setRaw(data)
+      return id
+    } catch (e) {
+      toast(errMsg(e), 'bad')
+      return null
+    }
+  }, [toast])
 
   const load = useCallback(async () => {
     try {
@@ -119,6 +127,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, [])
 
   useEffect(() => { void load() }, [load])
+  // After a sync, when the connection is back, when another tab changed something
+  useOnData(load)
 
   // The server fell back to the personal space (space deleted / no longer a member)
   useEffect(() => {
@@ -141,14 +151,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     return {
       s,
       me: s.persons.find((p) => p.is_me),
-      person: (id) => (id == null ? undefined : pMap.get(id)),
-      occasion: (id) => (id == null ? undefined : oMap.get(id)),
+      person: (id) => (id == null ? undefined : pMap.get(id) ?? pMap.get(realId(id))),
+      occasion: (id) => (id == null ? undefined : oMap.get(id) ?? oMap.get(realId(id))),
       occasionTitle: (o, withYear = true) => {
-        const bp = o.type === 'birthday' ? pMap.get(o.person_id ?? -1) : undefined
+        const bp = o.type === 'birthday' ? pMap.get(o.person_id ?? 0) : undefined
         const base = bp ? (bp.is_me ? t('calendar.birthdayOwn') : t('calendar.birthdayOf', { name: bp.name })) : o.type === 'birthday' && o.name === 'Geburtstag' ? occasionTypeLabel(s.occasion_types.find((x) => x.key === 'birthday'), 'birthday') : o.name
         return withYear ? `${base} ${o.date.slice(0, 4)}` : base
       },
-      giftDate: (g) => oMap.get(g.occasion_id ?? -1)?.date ?? g.date ?? g.created_at.slice(0, 10),
+      giftDate: (g) => oMap.get(g.occasion_id ?? 0)?.date ?? g.date ?? g.created_at.slice(0, 10),
       itemState: (i) => {
         if (i.status !== 'open') return i.status
         const linked = giftsByItem.get(i.id)?.filter((g) => g.status !== 'returned')

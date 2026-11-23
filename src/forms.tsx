@@ -2,7 +2,9 @@ import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'rea
 import { useNavigate } from 'react-router-dom'
 import { Check, Heart, Lightbulb, Loader2, Plus, Trash2, X } from 'lucide-react'
 import { AiMark, ImportDialog, useAiStatus } from './ai'
-import { ApiError, api, errMsg, type MyWishlist, type Wish, type WishlistsOverview } from './api'
+import { ApiError, api, errMsg, isOffline, type MyWishlist, type Wish, type WishlistsOverview } from './api'
+import { realId } from './offline/engine'
+import { useReachable, useRealState } from './offline/hooks'
 import { useLinkOptions, useOccasionTypes, useStore } from './store'
 import { fmtDateTime, getLocale, t, type TKey } from './i18n'
 import { PAYMENT_METHODS, RELATIONSHIPS, RELATION_GROUPS, STATUS_STEPS, fmtDate, groupOf, joinNames, parseNum, shares, statusIndex, statusInfo, type Audience, type Gift, type Giver, type Item, type Occasion, type Person } from './lib'
@@ -11,7 +13,7 @@ import { Badge, Button, Checkbox, DatePicker, Field, FormError, List, Modal, Mon
 import { OccasionSelect, OccasionTypeSelect, PersonPicker, PersonSelect, defaultDate } from './pickers'
 
 function useForm<T extends object>(init: T) {
-  const [f, setF] = useState(init)
+  const [f, setF] = useRealState(init)
   const set = <K extends keyof T>(k: K, v: T[K]) => setF((old) => ({ ...old, [k]: v }))
   return [f, set, setF] as const
 }
@@ -84,9 +86,12 @@ export function useLinkPreview(onResult: (p: Preview) => void) {
   const seq = useRef(0)
   const cb = useRef(onResult)
   cb.current = onResult
+  const up = useReachable()
+  const reachable = useRef(up)
+  reachable.current = up
   const run = async (raw: string) => {
     const url = raw.trim()
-    if (!url || url === last.current) return
+    if (!url || url === last.current || !reachable.current) return // offline: the link is kept, only the preview is skipped
     last.current = url
     const mine = ++seq.current
     setLoading(true)
@@ -114,7 +119,8 @@ export function useLinkPreview(onResult: (p: Preview) => void) {
     } catch (e) {
       if (mine !== seq.current) return
       setPv(null)
-      setError(e instanceof Error && e.message !== 'Failed to fetch' ? e.message : t('forms.preview.failed'))
+      if (isOffline(e)) last.current = ''
+      else setError(e instanceof Error ? e.message : t('forms.preview.failed'))
     } finally {
       if (mine === seq.current) setLoading(false)
     }
@@ -177,7 +183,7 @@ export function PersonForm({ initial, focus }: { initial?: Partial<Person>; focu
     archived: !!initial?.archived,
   })
   const isMe = !!initial?.is_me
-  const id = initial?.id
+  const id = realId(initial?.id)
   const [groupTouched, setGroupTouched] = useState(!!initial?.id)
   // Opened to add the birthday: the dialog starts there (after the dialog's own initial focus)
   useEffect(() => { if (focus === 'birthday') document.getElementById('person-birthday')?.focus() }, [focus])
@@ -227,7 +233,7 @@ export function PersonForm({ initial, focus }: { initial?: Partial<Person>; focu
               <input className={`input ${bad(f.yearly_budget) ? 'input-invalid' : ''}`} inputMode="decimal" placeholder={t('forms.person.budgetPlaceholder')} value={f.yearly_budget} onChange={(e) => set('yearly_budget', e.target.value)} />
             </Field>
           )}
-          {id && !isMe && (linkedMember ? (
+          {id && id > 0 && !isMe && (linkedMember ? (
             <Field label={t('forms.person.linkedWith')} hint={t('forms.person.memberHint')}>
               <input className="input" readOnly value={linkedMember.name} />
             </Field>
@@ -290,7 +296,7 @@ export function PersonForm({ initial, focus }: { initial?: Partial<Person>; focu
 export function OccasionForm({ initial }: { initial?: Partial<Occasion> }) {
   const { call, close, s, activePersons, person } = useStore()
   const types = useOccasionTypes()
-  const id = initial?.id
+  const id = realId(initial?.id)
   const isBirthday = initial?.type === 'birthday'
   // New occasion: Christmas when the space still has it, otherwise the first selectable type
   const first = types.active.find((x) => x.key === 'christmas') ?? types.active.find((x) => x.key !== 'birthday') ?? types.of('other')
@@ -391,7 +397,7 @@ export function OccasionForm({ initial }: { initial?: Partial<Occasion> }) {
 export function ItemForm({ initial }: { initial?: Partial<Item> }) {
   const { call, close, activePersons, s, money, occasion } = useStore()
   const appCur = s.settings.currency || 'EUR'
-  const id = initial?.id
+  const id = realId(initial?.id)
   const [tried, setTried] = useState(false)
   const edited = useRef(new Set<string>())
   const [f, set, setF] = useForm({
@@ -460,7 +466,7 @@ export function ItemForm({ initial }: { initial?: Partial<Item> }) {
       <Field label={t('forms.forWhom')} error={tried && !f.person_id && !!id && t('forms.item.needPerson')} hint={id ? undefined : t('inbox.laterHint')}>
         <PersonSelect id="item-person" label={t('forms.forWhom')} none={id ? undefined : t('inbox.later')} persons={activePersons.filter((p) => !p.is_me)} value={f.person_id} invalid={tried && !f.person_id && !!id} onChange={pickPerson} />
       </Field>
-      {f.person_id > 0 && (
+      {f.person_id !== 0 && (
         <Field label={t('forms.item.occasion')}>
           <OccasionSelect label={t('forms.item.occasion')} occasions={personOccasions} value={f.occasion_id} onChange={(oid) => set('occasion_id', oid)} personIds={[f.person_id]} />
         </Field>
@@ -516,7 +522,7 @@ function StatusStepper({ value, onChange }: { value: string; onChange: (s: strin
 function PaymentSection({ gift, payers }: { gift: Gift; payers: Person[] }) {
   const { call, s } = useStore()
   const [paid, setPaid] = useState(gift.payment_status === 'paid')
-  const [payer, setPayer] = useState(gift.payer_id ?? 0)
+  const [{ payer_id: payer }, setPayer] = useRealState({ payer_id: gift.payer_id ?? 0 })
   const [at, setAt] = useState(gift.paid_at ?? s.today)
   const [method, setMethod] = useState(gift.payment_method ?? '')
   const [amount, setAmount] = useState(str(gift.paid_amount))
@@ -537,7 +543,7 @@ function PaymentSection({ gift, payers }: { gift: Gift; payers: Person[] }) {
       {paid && (
         <div className="grid sm:grid-cols-2 gap-3">
           <Field label={t('forms.pay.who')}>
-            <Select value={payer} onChange={(e) => setPayer(Number(e.target.value))}>
+            <Select value={payer} onChange={(e) => setPayer({ payer_id: Number(e.target.value) })}>
               <option value={0}>{t('controls.picker.pleaseChoose')}</option>
               {payers.map((p) => <option key={p.id} value={p.id}>{p.is_me ? t('controls.picker.meSuffix', { name: p.name }) : p.name}</option>)}
             </Select>
@@ -651,7 +657,7 @@ function GiftTimeline({ gift }: { gift: Gift }) {
 export function GiftForm({ initial }: { initial?: Partial<Gift> }) {
   const { call, close, s, person, occasion, occasionTitle, me, money } = useStore()
   const appCur = s.settings.currency || 'EUR'
-  const id = initial?.id
+  const id = realId(initial?.id)
   // For existing gifts, status, payment and shares come live from the state (own endpoints)
   const live = (id ? s.gifts.find((g) => g.id === id) : undefined) ?? (initial as Gift | undefined)
   // Recipients first: without any the dialog starts there (after the dialog's own initial focus)
@@ -662,7 +668,7 @@ export function GiftForm({ initial }: { initial?: Partial<Gift> }) {
   // Recipients left out of an occasion (those an existing gift already has there stay valid)
   const leftOutOf = (oid: number | null | undefined, ids: number[]) => {
     const o = oid ? occasion(oid) : undefined
-    return o ? ids.filter((pid) => o.excluded_ids.includes(pid) && !(id && oid === initial?.occasion_id && initial.recipient_ids?.includes(pid))) : []
+    return o ? ids.filter((pid) => o.excluded_ids.includes(pid) && !(id && oid === initial?.occasion_id && initial?.recipient_ids?.includes(pid))) : []
   }
   const occResetHint = (oid: number | null | undefined, out: number[]) => {
     const o = oid ? occasion(oid) : undefined
@@ -701,7 +707,7 @@ export function GiftForm({ initial }: { initial?: Partial<Gift> }) {
       url: /^[a-z][a-z0-9+.-]*:/i.test(old.url.trim()) ? old.url : 'https://' + old.url.trim(),
     }))
   })
-  const [givers, setGivers] = useState<{ person_id: number; amount: string }[]>(
+  const [givers, setGivers] = useRealState<{ person_id: number; amount: string }[]>(
     (initial?.givers ?? (me ? [{ person_id: me.id, amount: null, settled: 0 } as Giver] : [])).map((g) => ({ person_id: g.person_id, amount: str(g.amount) })),
   )
   const [split, setSplit] = useState(givers.length > 1 || givers.some((g) => g.person_id !== me?.id))
@@ -847,7 +853,7 @@ export function WishForm({ listId, initial, onClose, onSaved }: { listId: number
   const { s, money } = useStore()
   const toast = useToast()
   const appCur = s.settings.currency || 'EUR'
-  const id = initial?.id
+  const id = realId(initial?.id)
   const edited = useRef(new Set<string>())
   const [tried, setTried] = useState(false)
   const [f, set, setF] = useForm({
@@ -942,7 +948,7 @@ export function WishForm({ listId, initial, onClose, onSaved }: { listId: number
 // ---------- Wishlist ----------
 export function ListForm({ initial, onClose, onSaved }: { initial?: MyWishlist; onClose: () => void; onSaved: (l: MyWishlist | null) => void }) {
   const toast = useToast()
-  const id = initial?.id
+  const id = realId(initial?.id)
   const [f, set] = useForm({
     title: initial?.title ?? '',
     description: initial?.description ?? '',

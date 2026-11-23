@@ -6,6 +6,7 @@ import { useState } from 'react'
 import { t } from './i18n'
 import { api, errMsg, type MyWishlist } from './api'
 import { fmtDate, type Occasion, type Person } from './lib'
+import { realId } from './offline/engine'
 import { useOccasionTypes, useStore } from './store'
 import { OccasionTypeIcon } from './components'
 import { OCCASION_ICON_MAP } from './occasion-icons'
@@ -36,7 +37,7 @@ export function PersonPicker({ persons, value, onChange, create = true, placehol
       aria-label={label ?? t('controls.picker.persons')}
       placeholder={persons.length || create ? placeholder ?? t('controls.picker.choosePersons') : t('controls.picker.noPersons')}
       options={persons.map(personOption)}
-      value={value}
+      value={value.map(realId)}
       onChange={(v) => onChange(v.map(Number))}
       create={create ? cfg : undefined}
     />
@@ -62,7 +63,7 @@ export function PersonSelect({ persons, value, onChange, placeholder, none, crea
   const options: SelectOption[] = [...(none ? [{ value: 0, label: none }] : []), ...persons.map(personOption)]
   return (
     <Select
-      id={id} aria-label={label ?? t('controls.picker.person')} placeholder={placeholder ?? t('controls.picker.pleaseChoose')} options={options} value={value || (none ? 0 : '')} invalid={invalid} inline={inline} className={className}
+      id={id} aria-label={label ?? t('controls.picker.person')} placeholder={placeholder ?? t('controls.picker.pleaseChoose')} options={options} value={realId(value) || (none ? 0 : '')} invalid={invalid} inline={inline} className={className}
       onChange={(e: SelectChange) => onChange(Number(e.target.value))} create={create ? cfg : undefined}
     />
   )
@@ -229,7 +230,7 @@ export function WishlistSelect({ lists, value, onChange, onCreated, placeholder,
   }
   return (
     <Select
-      aria-label={label ?? t('controls.picker.wishlist')} placeholder={placeholder ?? t('controls.picker.pleaseChoose')} value={value || ''} className={className} create={cfg}
+      aria-label={label ?? t('controls.picker.wishlist')} placeholder={placeholder ?? t('controls.picker.pleaseChoose')} value={realId(value) || ''} className={className} create={cfg}
       options={lists.map((l) => ({ value: l.id, label: l.title, meta: `${l.wish_count}` }))}
       onChange={(e) => onChange(Number(e.target.value))}
     />

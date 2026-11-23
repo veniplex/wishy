@@ -1,7 +1,7 @@
 /** Occasion page (`/calendar/:id`): grouped by person – one block per participant, "Other gifts", and the persons left out. */
 import { useState } from 'react'
 import { CalendarHeart, Lightbulb, MessageCircle, Pencil, Plus, Users } from 'lucide-react'
-import { useParams } from 'react-router-dom'
+import { Navigate, useParams } from 'react-router-dom'
 import { useStore } from './store'
 import { t } from './i18n'
 import { countdown, daysUntil, fmtDate, type Occasion } from './lib'
@@ -13,6 +13,7 @@ export function OccasionDetail() {
   const { occasionId: id } = useParams()
   const { occasion } = useStore()
   const o = occasion(Number(id))
+  if (o && o.id !== Number(id)) return <Navigate to={`/calendar/${o.id}`} replace /> // created offline, synced meanwhile
   if (!o) return <Page><EmptyState icon={CalendarHeart} action={<Button size="sm" to="/calendar">{t('calendar.backToList')}</Button>}>{t('calendar.notFound')}</EmptyState></Page>
   return <OccasionView key={o.id} oid={o.id} />
 }

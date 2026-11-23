@@ -3,6 +3,8 @@ import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
 import { ArrowDown, ArrowUp, Bell, BellOff, Check, ExternalLink, Gift as GiftIcon, Heart, House, Link2, LogOut, Lock, LogIn, Pencil, Plus, RotateCcw, Share2, Star, Trash2, Undo2, Users } from 'lucide-react'
 import { api, errMsg, spaceLabel, type KnownUser, type ListView, type MyWishlist, type PublicView, type SharedSummary, type SharedWish, type Wish, type WishlistsOverview } from './api'
 import { rememberNext, useAuth } from './auth'
+import { realId } from './offline/engine'
+import { useIds, useOnData } from './offline/hooks'
 import { useStore } from './store'
 import { fmtDate, type State } from './lib'
 import { AiImportButton } from './ai'
@@ -11,7 +13,7 @@ import { listTabs } from './nav'
 import { LanguageMenu } from './i18n/switch'
 import { t } from './i18n'
 import { UserAvatar } from './user-avatar'
-import { Badge, Banner, Brand, Button, CopyField, EmptyState, Field, FormError, IconButton, List, Modal, Money, Page, PageHeader, PageSkeleton, Row, Section, Segmented, Select, Stars, Switch, Thumb, TintAvatar, ToggleLink, useConfirm, useToast } from './ui'
+import { Badge, Banner, Brand, Button, CopyField, EmptyState, Field, FormError, IconButton, List, Modal, Money, Page, PageHeader, PageSkeleton, Row, Section, Segmented, Select, Stars, Switch, Thumb, TintAvatar, ToggleLink, tintOf, useConfirm, useToast } from './ui'
 
 const GUEST_KEY = 'guestName'
 const savedGuest = () => {
@@ -277,7 +279,7 @@ function Cover({ id }: { id: number }) {
   return (
     <div className="flex gap-1.5 h-28">
       {icons.map((Icon, k) => (
-        <div key={k} className="flex-1 min-w-0 rounded-2xl grid place-items-center text-ink" style={{ background: `var(--t${((id + k * 2) % 5) + 1})` }}>
+        <div key={k} className="flex-1 min-w-0 rounded-2xl grid place-items-center text-ink" style={{ background: tintOf(Math.abs(id) + k * 2) }}>
           <Icon size={30} strokeWidth={1.5} />
         </div>
       ))}
@@ -307,8 +309,9 @@ export function MyLists() {
   const [error, setError] = useState('')
   const [creating, setCreating] = useState(false)
   const [showArchived, setShowArchived] = useState(false)
-  const load = useCallback(() => api<WishlistsOverview>('GET', '/api/wishlists').then(setData).catch((e) => setError(errMsg(e))), [])
+  const load = useCallback(() => api<WishlistsOverview>('GET', '/api/wishlists').then((o) => { setData(o); setError('') }).catch((e) => setError(errMsg(e))), [])
   useEffect(() => { void load() }, [load])
+  useOnData(load)
   const card = (l: MyWishlist) => (
     <ListCard
       key={l.id}
@@ -367,7 +370,9 @@ export function SharedWithMe() {
   const { sharedUnseen } = useAuth()
   const [data, setData] = useState<WishlistsOverview | null>(null)
   const [error, setError] = useState('')
-  useEffect(() => { api<WishlistsOverview>('GET', '/api/wishlists').then(setData).catch((e) => setError(errMsg(e))) }, [])
+  const load = useCallback(() => api<WishlistsOverview>('GET', '/api/wishlists').then((o) => { setData(o); setError('') }).catch((e) => setError(errMsg(e))), [])
+  useEffect(() => { void load() }, [load])
+  useOnData(load)
   const owners = [...new Map((data?.shared ?? []).map((l) => [l.owner.id, l.owner])).values()]
   return (
     <Page>
@@ -431,6 +436,11 @@ export function WishlistDetail() {
     setView(null)
     void load().then(() => refresh())
   }, [load, refresh])
+  useOnData(load)
+  // A list created offline got its real id
+  useIds()
+  const real = realId(Number(id))
+  if (real !== Number(id)) return <Navigate to={`/wishlists/${real}`} replace />
 
   if (error) return <Page><EmptyState icon={Lock} action={<Button size="sm" to="/wishlists">{t('wishlists.toLists')}</Button>}>{error}</EmptyState></Page>
   if (!view) return <PageSkeleton />
@@ -515,8 +525,8 @@ export function WishlistDetail() {
         actions={
           <>
             <IconButton icon={Pencil} label={t('wishlists.edit')} onClick={() => setEditing(true)} />
-            <AiImportButton init={{ target: 'wishes', listId: mine.id }} onDone={() => void load()} label={t('wishlists.aiImport')} />
-            <Button icon={Share2} onClick={() => setSharing(true)}>{t('wishlists.share.action')}</Button>
+            {mine.id > 0 && <AiImportButton init={{ target: 'wishes', listId: mine.id }} onDone={() => void load()} label={t('wishlists.aiImport')} />}
+            {mine.id > 0 && <Button icon={Share2} onClick={() => setSharing(true)}>{t('wishlists.share.action')}</Button>}
             <Button variant="primary" icon={Plus} onClick={() => setWishForm({})}>{t('wishlists.addWish')}</Button>
           </>
         }

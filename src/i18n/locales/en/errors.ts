@@ -15,6 +15,8 @@ const en: Record<keyof typeof de, string> = {
   'code.space_owner_permissions': 'Only the owner can manage permissions',
   'code.personal_space_permissions': 'The personal space has no other members',
   'network': 'Server unreachable',
+  'offline': 'This needs a connection to the server.',
+  'code.offline_row': 'This entry has to be synced first',
   'unknown': 'Unknown error',
   'downloadFailed': 'Download failed',
   'unreachable': 'Server unreachable: {detail}',
@@ -275,5 +277,8 @@ const en: Record<keyof typeof de, string> = {
   'login.account_exists': 'There is already an account with a password for this email address. Sign in with your password, then link Google under Settings › Account.',
   'login.google_wrong_account': 'That is not the Google account linked to your account. Please choose the right one.',
   'code.api_key_space_restricted': 'This key is restricted to one space and can’t access this',
+  'code.op_id_invalid': 'The change could not be identified',
+  'code.op_id_reused': 'This change was already used for another action',
+  'code.space_gone': 'The space of this change is no longer available',
 }
 export default en

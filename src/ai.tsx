@@ -22,10 +22,13 @@ export function resetAiStatus() {
   void loadStatus()
 }
 function loadStatus() {
-  pending ??= api<AiStatus>('GET', '/api/ai/status').catch(() => OFF).then((s) => {
+  pending ??= api<AiStatus>('GET', '/api/ai/status').then((s) => {
     cached = s
     listeners.forEach((l) => l(s))
     return s
+  }).catch(() => {
+    pending = null // asked again by the next component
+    return OFF
   })
   return pending
 }

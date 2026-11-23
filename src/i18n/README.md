@@ -31,7 +31,7 @@ export default { 'top.new': 'Neu' } as const   import type de from '../de/nav'
 
 Existing: `common`, `nav`, `settings`, `account`, `admin`, `auth`, `security`, `adminAuth`, `adminGeneral`, `adminUsers`,
 `adminSystem`, `errors`, `controls`, `start`, `give`, `calendar`, `gifts`, `finance`, `status`, `spaces`, `ai`, `wishlists`,
-`forms`, `audit`, `apiKeys`, `apiDocs`, `aiUsage`, `aiPrompts`, `inbox`, `backup`, `update`, `maintenance`.
+`forms`, `audit`, `apiKeys`, `apiDocs`, `aiUsage`, `aiPrompts`, `inbox`, `backup`, `update`, `maintenance`, `offline`.
 
 **Adding a namespace:** create `de/<ns>.ts` and `en/<ns>.ts`, then add one import and one entry each in `de` and `en` in `index.ts`.
 With several people/agents: everyone maintains only *their* namespace files.

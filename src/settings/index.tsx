@@ -1,6 +1,8 @@
 import { Navigate, Outlet, Route } from 'react-router-dom'
 import { useFeatures } from '../features'
 import { t, useT } from '../i18n'
+import { useReachable } from '../offline/hooks'
+import { NeedsConnection } from '../offline/ui'
 import { Page, PageHeader, type TabItem } from '../ui'
 import { AccountTab } from './account-tab'
 import { AppearanceTab } from './appearance-tab'
@@ -30,7 +32,9 @@ export function SettingsLayout() {
 
 function ApiRoute() {
   const f = useFeatures()
-  return f.api ? <ApiKeysTab /> : <Navigate to="/settings/account" replace />
+  const reachable = useReachable()
+  if (!f.api) return <Navigate to="/settings/account" replace />
+  return reachable ? <ApiKeysTab /> : <NeedsConnection />
 }
 
 /** Routes under /settings (mounted in AppRoutes) */

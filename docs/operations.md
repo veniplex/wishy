@@ -295,7 +295,47 @@ Admin: `GET|POST /api/admin/backups`, `GET|PUT /api/admin/backups/settings`, `PO
 `GET /api/admin/update/status[?refresh=1]`, `POST …/update/check`, `POST …/update/start {version, mode?}`,
 `GET …/update/log`, `GET|PUT …/update/settings`.
 
-## 9. For developers: schema version
+## 9. Offline use (PWA)
+
+Wishy can be installed as an app and keeps working when the Wishy server cannot be reached (no network, home server only
+reachable at home, a reverse proxy answering `502`/`504`). Changes made meanwhile are stored on the device and sent when the
+server is back.
+
+**HTTPS is required.** Browsers only allow service workers (and installing the app) on HTTPS or on `localhost`. On plain
+HTTP, for example `http://192.168.1.20:3000` in the home network, Wishy works as before: no offline start, no install, no errors.
+Put a TLS-terminating reverse proxy in front (see `TRUST_PROXY` in §2) or use a hostname with a certificate to get the offline mode.
+
+What works offline:
+
+- Starting the app (the shell is cached by the service worker) when you were signed in on this device before.
+- Reading everything that was synchronised: your spaces (persons, occasions, ideas, gifts), your wishlists and the lists
+  shared with you, product images of those. After a start and again when the connection returns, all of it is fetched in the
+  background (at most every 15 minutes), not only the pages you visited.
+- Changing it: persons, occasions, ideas, gifts (including status, payment, settling shares), own wishlists and wishes.
+  Rows created offline can be used right away (they get a temporary id that is replaced after the sync).
+
+Needs a connection (the app shows a message): sharing, reserving, invites, link preview and import, AI, settings, spaces,
+account and security, admin.
+
+Synchronisation: the queued changes are sent in order as soon as the server answers again. Every change carries an `X-Op-Id`,
+so a request whose response got lost is safe to send again (the server remembers the id for 90 days, table `client_ops`,
+cleaned up by the retention job). Edits of different fields of the same record merge. If someone changed the same field
+meanwhile, the change is held back and the sync dialog (shown in the header when something is pending) lets you keep yours or
+theirs. A change the server rejects (for example missing permission, or the space no longer exists) is listed with the reason.
+
+Where the data is kept: in the browser of the device (IndexedDB for data and the queue, Cache Storage for the app shell and
+images), separately per user. Nothing is stored on the server for this except the op ids. The browser may evict data of sites
+it considers unimportant; Wishy asks for persistent storage once something is worth keeping. **Signing out wipes the local
+data of that user from the device** (with a warning when changes are still waiting). Signing out offline wipes it too and
+ends the server session at the next contact. Account deletion or disabling removes it with the next start. Settings ›
+Account › "Offline & app" shows the storage use, can remove the offline data and installs the app.
+
+Reverse proxy notes: do not cache `/sw.js` or `/manifest.webmanifest` in the proxy (the app already sends
+`Cache-Control: no-cache`); `/assets/<name>-<hash>.<ext>` is immutable for a year. The service worker only passes through
+answers of the Wishy server: a `503` maintenance page is shown as usual, the cached shell is used only when no answer
+arrives or the proxy answers `502`/`504`. `GET /manifest.webmanifest` is public; during `npm run dev` the Vite proxy forwards it.
+
+## 10. For developers: schema version
 
 The complete schema is created in its final form by `server/db.js` on a fresh database. `PRAGMA user_version` is the schema
 version (baseline: 1, no migration steps yet). It makes backups from newer schemas get rejected and keeps older app versions
@@ -309,7 +349,7 @@ import { bumpSchema } from './schema.js'
 bumpSchema(2, 'short-name')      // unique, ascending number – register it in the list in server/schema.js
 ```
 
-## 10. Trying the first image updates on a real Docker host
+## 11. Trying the first image updates on a real Docker host
 
 The self-replacement is tested against a simulated Docker API, **not against a real daemon**. Before production use,
 run through it once on a Linux host (throwaway data!):

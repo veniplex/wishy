@@ -266,6 +266,19 @@ CREATE TABLE IF NOT EXISTS gift_events (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_gift_events_gift ON gift_events(gift_id);
+-- Idempotency log of offline-capable writes (X-Op-Id, see offline-ops.js): a repeated request is answered without running the handler again.
+-- created_id: row created by the op (X-Created-Id); ref_id: wishlist of a deleted wish (to rebuild the list view). Pruned by retention.js.
+CREATE TABLE IF NOT EXISTS client_ops (
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  op_id TEXT NOT NULL,
+  method TEXT NOT NULL,
+  path TEXT NOT NULL,
+  created_id INTEGER,
+  ref_id INTEGER,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (user_id, op_id)
+);
+CREATE INDEX IF NOT EXISTS idx_client_ops_created ON client_ops(created_at);
 CREATE TABLE IF NOT EXISTS reservations (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   wish_id INTEGER NOT NULL UNIQUE REFERENCES wishes(id) ON DELETE CASCADE,
