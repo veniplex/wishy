@@ -201,7 +201,7 @@ export function SpaceButton() {
   const [open, setOpen] = useState(false)
   return (
     <>
-      <button className="pill max-w-[38vw] sm:max-w-[16rem] max-sm:px-3 max-sm:gap-1" onClick={() => setOpen(true)} title={t('spaces.switchTitle')} aria-haspopup="dialog" aria-label={t('spaces.switchAria', { space: space?.name ?? '' })}>
+      <button className="pill min-w-0 shrink max-w-[38vw] sm:max-w-[16rem] max-sm:px-3 max-sm:gap-1" onClick={() => setOpen(true)} title={t('spaces.switchTitle')} aria-haspopup="dialog" aria-label={t('spaces.switchAria', { space: space?.name ?? '' })}>
         <span className="truncate">{space ? spaceLabel(space) : t('spaces.fallbackName')}</span>
         <ChevronDown size={16} strokeWidth={2.2} className="shrink-0" />
       </button>

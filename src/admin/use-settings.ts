@@ -14,6 +14,7 @@ export interface GeneralSettings {
   retention_audit_days: number
   retention_ai_usage_days: number
   retention_sessions_days: number | null
+  retention_ip_days: number
   env_locked: string[]
 }
 export interface AuthSettings {

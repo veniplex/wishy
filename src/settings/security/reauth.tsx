@@ -1,10 +1,14 @@
 import { useCallback, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { startAuthentication } from '@simplewebauthn/browser'
+import type { PublicKeyCredentialRequestOptionsJSON } from '@simplewebauthn/browser'
+import { Fingerprint } from 'lucide-react'
 import { api, ApiError, errMsg } from '../../api'
 import { useUserX } from '../../account-types'
 import { t, useT } from '../../i18n'
 import { Button, Field, FormError, Modal, Segmented } from '../../ui'
+import { passkeysSupported, webauthnMessage } from './passkeys'
 
-export type ReauthBody = { current_password: string } | { code: string }
+export type ReauthBody = { current_password: string } | { code: string } | { passkey: unknown }
 
 /**
  * Shared "Confirm it's you" dialog for sensitive actions: password (if set) or 2FA/recovery code
@@ -24,6 +28,7 @@ export function ReauthDialog({ title, text, confirmLabel, destructive, onConfirm
   const user = useUserX()
   const canPassword = !!user?.has_password
   const canCode = !!user?.two_factor?.enabled
+  const canPasskey = (user?.two_factor?.passkeys ?? 0) > 0 && passkeysSupported()
   const googleLinked = !!user?.google_linked || !!user?.identities?.some((i) => i.provider === 'google' && i.linked)
   const onlyGoogle = !canPassword && !canCode && googleLinked
   const [method, setMethod] = useState<'password' | 'code'>(canPassword ? 'password' : 'code')
@@ -43,6 +48,19 @@ export function ReauthDialog({ title, text, confirmLabel, destructive, onConfirm
       setBusy(false)
     }
   }
+  // Passkey (user verification required): challenge bound to this session, then the assertion goes in as the confirmation
+  const usePasskey = async () => {
+    setBusy(true)
+    setError('')
+    try {
+      const optionsJSON = await api<PublicKeyCredentialRequestOptionsJSON>('POST', '/api/account/reauth/passkey-options', {})
+      await onConfirm({ passkey: await startAuthentication({ optionsJSON }) })
+      onClose()
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : webauthnMessage(err))
+      setBusy(false)
+    }
+  }
   const body = text ?? (onlyGoogle ? t('security.reauth.textNoPassword') : t('security.reauth.text'))
   return (
     <form onSubmit={submit}>
@@ -53,6 +71,9 @@ export function ReauthDialog({ title, text, confirmLabel, destructive, onConfirm
         footer={<><span className="flex-1" /><Button onClick={onClose}>{t('common.cancel')}</Button><Button variant={destructive ? 'destructive' : 'primary'} type="submit" disabled={busy || (!onlyGoogle && !value)}>{onlyGoogle ? t('security.reauth.google') : confirmLabel ?? t('security.reauth.confirm')}</Button></>}
       >
         <p className="text-sm text-muted">{body}</p>
+        {!onlyGoogle && canPasskey && (
+          <Button variant="primary" icon={Fingerprint} className="w-full min-h-11" disabled={busy} onClick={usePasskey}>{t('security.reauth.passkeyAction')}</Button>
+        )}
         {!onlyGoogle && canPassword && canCode && (
           <Field label={t('security.reauth.method')} group>
             <Segmented label={t('security.reauth.method')} value={method} onChange={(m) => { setMethod(m); setValue(''); setError('') }} options={[{ value: 'password', label: t('security.reauth.password') }, { value: 'code', label: t('security.reauth.code') }]} />
@@ -61,8 +82,8 @@ export function ReauthDialog({ title, text, confirmLabel, destructive, onConfirm
         {!onlyGoogle && (
           <Field label={method === 'password' ? t('security.reauth.passwordField') : t('security.reauth.codeField')}>
             {method === 'password'
-              ? <input className="input" type="password" autoFocus autoComplete="current-password" required value={value} onChange={(e) => setValue(e.target.value)} />
-              : <input className="input font-mono tracking-wider" inputMode="text" autoFocus autoComplete="one-time-code" required value={value} onChange={(e) => setValue(e.target.value)} />}
+              ? <input className="input" type="password" autoFocus autoComplete="current-password" enterKeyHint="done" required value={value} onChange={(e) => setValue(e.target.value)} />
+              : <input className="input font-mono tracking-wider" inputMode="text" autoFocus autoComplete="one-time-code" enterKeyHint="done" required value={value} onChange={(e) => setValue(e.target.value)} />}
           </Field>
         )}
         <FormError>{error}</FormError>

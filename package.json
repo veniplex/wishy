@@ -1,7 +1,7 @@
 {
   "name": "wishy",
   "private": true,
-  "version": "1.1.0",
+  "version": "1.2.0",
   "license": "AGPL-3.0-only",
   "description": "Wishy – self-hosted app for wishlists, gift ideas and shared gift planning",
   "repository": {
@@ -26,10 +26,10 @@
     "release:build": "node scripts/build-release.mjs --build",
     "test:e2e": "node scripts/test-update-e2e.mjs",
     "release:sign": "node scripts/sign-release.mjs release --verify-with launcher/update-key.pub",
-    "test:smoke": "node scripts/tests/smoke-core.mjs && node scripts/tests/smoke-auth.mjs && node scripts/tests/smoke-platform.mjs && node scripts/tests/occasion-types.mjs && node scripts/tests/relationship-types.mjs && node scripts/tests/space-permissions.mjs && node scripts/tests/person-planning.mjs && node scripts/tests/offline-sync.mjs && node scripts/tests/offline-client.mjs && node scripts/tests/person-photos.mjs && node scripts/tests/emoji-search.mjs && node scripts/tests/detail-view.mjs"
+    "test:smoke": "node scripts/tests/smoke-core.mjs && node scripts/tests/smoke-auth.mjs && node scripts/tests/smoke-platform.mjs && node scripts/tests/occasion-types.mjs && node scripts/tests/relationship-types.mjs && node scripts/tests/space-permissions.mjs && node scripts/tests/person-planning.mjs && node scripts/tests/offline-sync.mjs && node scripts/tests/offline-client.mjs && node scripts/tests/person-photos.mjs && node scripts/tests/emoji-search.mjs && node scripts/tests/detail-view.mjs && node scripts/tests/claims-admin.mjs && node scripts/tests/guest-claims.mjs"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^1.12.0",
+    "@anthropic-ai/sdk": "^1.13.0",
     "@fontsource-variable/bricolage-grotesque": "^5.3.0",
     "@fontsource-variable/inter": "^5.3.0",
     "@google/genai": "^3.6.1",
@@ -38,8 +38,8 @@
     "cheerio": "^1.2.0",
     "express": "^5.3.0",
     "jose": "^6.2.18",
-    "lucide-react": "^1.77.0",
-    "openai": "^7.62.0",
+    "lucide-react": "^1.79.0",
+    "openai": "^7.63.0",
     "puppeteer-core": "^25.18.1",
     "qrcode": "^1.5.4",
     "react": "^19.3.1",

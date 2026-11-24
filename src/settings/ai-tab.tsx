@@ -1,5 +1,7 @@
 import { useT, t } from '../i18n'
 import { AiBadge, useAiStatus, type AiFeatureKey } from '../ai'
+import { useFeatures } from '../features'
+import { OwnAiUsage } from './api-tab'
 import { Badge, Card, Section } from '../ui'
 
 const KEYS: AiFeatureKey[] = ['link_import', 'text_import', 'image_import', 'suggestions']
@@ -8,16 +10,18 @@ const KEYS: AiFeatureKey[] = ['link_import', 'text_import', 'image_import', 'sug
 export function AiTab() {
   useT()
   const ai = useAiStatus()
+  const f = useFeatures()
   const global = ai.global_enabled ?? ai.enabled
   const user = ai.user_enabled ?? true
   const off = !global ? t('ai.overview.offGlobal') : !user ? t('ai.overview.offUser') : null
   const linkMode = ai.link_mode === 'builtin' ? t('ai.linkMode.builtin') : t('ai.linkMode.ai')
   return (
+    <>
     <Section title={t('ai.overview.title')}>
       <Card className="space-y-4">
         <p className="text-sm text-muted">{t('ai.overview.intro')}</p>
         {off && <p className="text-sm font-medium">{off}</p>}
-        <dl className="grid gap-x-6 gap-y-1 text-sm sm:grid-cols-[auto_1fr]">
+        <dl className="grid grid-cols-1 gap-x-6 gap-y-1 text-sm sm:grid-cols-[auto_1fr]">
           {global && ai.provider_label && (<><dt className="text-muted">{t('ai.overview.provider')}</dt><dd>{ai.provider_label}</dd></>)}
           <dt className="text-muted">{t('ai.overview.ownKey')}</dt><dd>{t('ai.overview.ownKeyNo')}</dd>
           <dt className="text-muted">{t('ai.overview.linkDefault')}</dt><dd>{global ? linkMode : t('ai.linkMode.builtin')}</dd>
@@ -40,5 +44,7 @@ export function AiTab() {
         </ul>
       </Card>
     </Section>
+    {f.ai && <OwnAiUsage />}
+    </>
   )
 }

@@ -104,7 +104,7 @@ an image with a new key.
 
 ## 7. Keeping the base image current
 
-The image is built on a base pinned by digest (`FROM node:24-alpine@sha256:…`), and `apk upgrade` pulls in Alpine fixes
+The image is built on a base pinned by digest (`FROM node:26-alpine@sha256:…`), and `apk upgrade` pulls in Alpine fixes
 at build time. Nothing is rebuilt or published automatically; instead:
 
 1. **Dependabot** (`.github/dependabot.yml`, weekly) opens pull requests for the base image digest (same Node major;

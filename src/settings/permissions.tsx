@@ -6,12 +6,13 @@ import { t, useT, type TKey } from '../i18n'
 import { useOnData } from '../offline/hooks'
 import { Switch } from '../controls'
 import { UserAvatar } from '../user-avatar'
-import { Badge, Card, FormError, List, Row, Section, useToast } from '../ui'
+import { ChevronDown, ChevronRight } from 'lucide-react'
+import { Card, FormError, List, Row, Section, useToast } from '../ui'
 
 /** One switch per permission (title + what it allows) */
 function PermissionSwitches({ value, onChange, disabled }: { value: SpacePermissions; onChange: (key: PermissionKey, on: boolean) => void; disabled?: boolean }) {
   return (
-    <div className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
+    <div className="grid gap-x-6 gap-y-3 grid-cols-1 sm:grid-cols-2">
       {PERMISSION_KEYS.map((k) => (
         <Switch key={k} checked={!!value[k]} disabled={disabled} onChange={(on) => onChange(k, on)}>
           <span className="block font-medium">{t(`settings.space.perms.${k}` as TKey)}</span>
@@ -84,10 +85,11 @@ export function SpacePermissionsSection() {
                 dense
                 lead={<UserAvatar userId={m.user_id} name={m.name} size={32} />}
                 title={m.user_id === user?.id ? t('controls.picker.meSuffix', { name: m.name }) : m.name}
-                meta={m.email}
+                titleSuffix={open === m.user_id ? <ChevronDown size={16} className="text-muted" aria-hidden /> : <ChevronRight size={16} className="text-muted" aria-hidden />}
+                meta={t('settings.space.perms.count', { count: given(m), total: PERMISSION_KEYS.length })}
+                extra={<span className="break-all">{m.email}</span>}
                 expanded={open === m.user_id}
                 onClick={() => setOpen(open === m.user_id ? null : m.user_id)}
-                trailing={<Badge tone={given(m) === PERMISSION_KEYS.length ? 'ok' : 'neutral'}>{t('settings.space.perms.count', { count: given(m), total: PERMISSION_KEYS.length })}</Badge>}
                 below={open === m.user_id && m.permissions ? <div className="pt-1 pb-2"><PermissionSwitches value={m.permissions} onChange={(k, on) => void setMember(m, k, on)} /></div> : undefined}
               />
             ))}

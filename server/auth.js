@@ -6,6 +6,7 @@ import { createSession, destroySession, destroyUserSessions, requireAuth } from 
 import { createSpace, meOf, acceptSpaceInvite } from './spaces.js'
 import { hashPassword, verifyPassword, DUMMY_HASH, makeLimiter, assertCurrentPassword } from './password.js'
 import { respondLogin, requireConfirm } from './twofactor-routes.js'
+import { passkeyLoginOptions, verifyPasskeyLogin } from './webauthn.js'
 import { clearIdpAvatar } from './avatars.js'
 import { has2fa } from './twofactor.js'
 import { audit } from './audit.js'
@@ -22,7 +23,8 @@ export { hashPassword, verifyPassword }
 //  - Failed attempts per account (all IPs):  from the 21st failed attempt/h a delay of 2 s, 4 s, 8 s … (at most 15 min) grows –
 //    it does NOT apply to IPs the account has already signed in from (existing session). No hard lock,
 //    so nobody can lock the victim out with foreign failed attempts.
-//  - All unauthenticated POSTs (login, register, reset, setup, 2fa/*): 60 per minute and IP (hits, not only failures)
+//  - Passkey sign-in (POST /api/auth/passkey/verify): failures count in the same two IP limiters (ip|"passkey" and IP in total)
+//  - All unauthenticated POSTs (login, register, reset, setup, 2fa/*, passkey/*): 60 per minute and IP (hits, not only failures)
 //  - Register/reset/setup (scrypt, CPU-expensive) additionally: 12 per minute and IP
 const loginFails = makeLimiter(10) // ip|email
 const loginFailsIp = makeLimiter(40) // IP only
@@ -128,7 +130,7 @@ export function redeemInvite(gate, userId) {
 // ---------- Routen ----------
 export function authRoutes(app) {
   // Rate limiting of all unauthenticated POSTs (see numbers above)
-  const ANON = /^\/api\/auth\/(login|register|reset|setup|2fa\/[a-z-]+)$/
+  const ANON = /^\/api\/auth\/(login|register|reset|setup|passkey[/][a-z]+|2fa\/[a-z-]+)$/
   const HEAVY = /^\/api\/auth\/(register|reset|setup)$/
   app.use('/api/auth', (req, res, next) => {
     if (req.method !== 'POST') return next()
@@ -260,6 +262,38 @@ export function authRoutes(app) {
     // With an active second factor, step 2 follows (POST /api/auth/2fa/verify); the login is logged there
     if (!has2fa(u.id)) audit(req, 'auth.login', { target: { type: 'user', id: u.id, label: u.email } })
     respondLogin(req, res, u, 'password')
+  })
+
+  // ---------- Passwordless sign-in with a passkey (discoverable credential, user verification required) ----------
+  // A passkey with user verification is possession + biometrics/PIN and therefore replaces password AND second factor; no 2FA step follows.
+  // Every failure answers identically (passkey_login_failed), takes at least ~300 ms and is counted by the brute-force limiters.
+  app.post('/api/auth/passkey/options', async (req, res) => {
+    if (loginFailsIp.limited(ipKey(req.ip))) throw retry429(res, 60)
+    res.json(await passkeyLoginOptions(req, res))
+  })
+
+  app.post('/api/auth/passkey/verify', async (req, res) => {
+    const started = Date.now()
+    const ipk = ipKey(req.ip)
+    const key = failKey(req, 'passkey')
+    if (loginFails.limited(key) || loginFailsIp.limited(ipk)) {
+      audit(req, 'auth.login', { status: 'fail', details: { method: 'passkey', reason: 'rate_limited' } })
+      throw retry429(res, 60)
+    }
+    let u
+    try {
+      u = await verifyPasskeyLogin(req, res, req.body?.response)
+    } catch (e) {
+      if (e.code !== 'passkey_login_failed') throw e
+      loginFails.fail(key)
+      loginFailsIp.fail(ipk)
+      audit(req, 'auth.login', { status: 'fail', ...(e.userId ? { target: { type: 'user', id: e.userId } } : {}), details: { method: 'passkey', reason: 'passkey_failed' } })
+      await new Promise((r) => setTimeout(r, Math.max(0, 300 - (Date.now() - started))))
+      throw e
+    }
+    loginFails.clear(key)
+    audit(req, 'auth.login', { target: { type: 'user', id: u.id, label: u.email }, details: { method: 'passkey' } })
+    login(req, res, u.id)
   })
 
   app.post('/api/auth/logout', (req, res) => {

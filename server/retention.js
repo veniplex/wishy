@@ -1,4 +1,4 @@
-// Retention: audit log, AI usage (with daily rollup before deletion), old sessions.
+// Retention: audit log, AI usage (with daily rollup before deletion), old sessions, and anonymisation of IP addresses / user agents.
 // Runs daily and at startup; manually via POST /api/admin/retention/run.
 import { db } from './db.js'
 import { getSys, setSys } from './config.js'
@@ -8,7 +8,9 @@ import { rollupBefore } from './ai/usage.js'
 import { bad } from './util.js'
 
 const DAY = 86_400_000
-const DEFAULTS = { retention_audit_days: 365, retention_ai_usage_days: 730, retention_sessions_days: 90 }
+// retention_ip_days: IP addresses and user agents are personal data. After this many days they are blanked in the audit log and on
+// reservations while the entries themselves stay (until retention_audit_days). 0 = keep the IP as long as the entry.
+const DEFAULTS = { retention_audit_days: 365, retention_ai_usage_days: 730, retention_sessions_days: 90, retention_ip_days: 90 }
 const KEYS = Object.keys(DEFAULTS)
 
 export function getRetention() {
@@ -29,12 +31,13 @@ const dayBefore = (days, now) => new Date(now - days * DAY).toISOString().slice(
  */
 export function runRetention(ctx = { via: 'system' }, { now = Date.now() } = {}) {
   const cfg = getRetention()
-  const res = { audit_deleted: 0, ai_rows_rolled_up: 0, ai_days_rolled_up: 0, sessions_deleted: 0, client_ops_deleted: 0 }
+  const res = { audit_deleted: 0, ai_rows_rolled_up: 0, ai_days_rolled_up: 0, sessions_deleted: 0, client_ops_deleted: 0, ip_anonymised: 0 }
   try {
     if (cfg.retention_audit_days > 0) {
       const cutoff = new Date(now - cfg.retention_audit_days * DAY).toISOString()
       res.audit_deleted = Number(db.prepare('DELETE FROM audit_log WHERE at<?').run(cutoff).changes)
     }
+    if (cfg.retention_ip_days > 0) res.ip_anonymised = anonymiseIps(new Date(now - cfg.retention_ip_days * DAY))
     if (cfg.retention_ai_usage_days > 0) {
       const r = rollupBefore(dayBefore(cfg.retention_ai_usage_days, now))
       res.ai_rows_rolled_up = r.rows
@@ -54,6 +57,20 @@ export function runRetention(ctx = { via: 'system' }, { now = Date.now() } = {})
     audit(ctx, 'retention.cleanup', { status: 'fail', details: { error: String(e?.message).slice(0, 200) } })
     throw e
   }
+}
+
+/** Blanks ip / user_agent of everything older than `before` (audit log, reservations, last IP of API keys). Returns the number of rows changed. */
+export function anonymiseIps(before) {
+  const iso = before.toISOString()
+  const sqlDate = iso.slice(0, 19).replace('T', ' ') // reservations.created_at is stored as datetime('now')
+  let n = Number(db.prepare('UPDATE audit_log SET ip=NULL, user_agent=NULL WHERE at<? AND (ip IS NOT NULL OR user_agent IS NOT NULL)').run(iso).changes)
+  const cols = new Set(db.prepare('PRAGMA table_info(reservations)').all().map((c) => c.name))
+  const set = ['ip', 'user_agent'].filter((c) => cols.has(c))
+  if (set.length) n += Number(db.prepare(`UPDATE reservations SET ${set.map((c) => `${c}=NULL`).join(', ')} WHERE created_at<? AND (${set.map((c) => `${c} IS NOT NULL`).join(' OR ')})`).run(sqlDate).changes)
+  // Guests of a list: the address of their last (refreshed) visit
+  n += Number(db.prepare('UPDATE wishlist_guests SET ip=NULL, user_agent=NULL WHERE last_seen_at<? AND (ip IS NOT NULL OR user_agent IS NOT NULL)').run(sqlDate).changes)
+  n += Number(db.prepare('UPDATE api_keys SET last_used_ip=NULL WHERE last_used_ip IS NOT NULL AND COALESCE(last_used_at, created_at)<?').run(iso).changes)
+  return n
 }
 
 function overview() {

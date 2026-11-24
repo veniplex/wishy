@@ -4,7 +4,7 @@ import { ApiError, api, errMsg, errorText, getSpaceId, type Me } from '../../api
 import { useUserX } from '../../account-types'
 import { useAuth } from '../../auth'
 import { t, useT } from '../../i18n'
-import { Button, Card, FilePicker, Field, FormError, Section, useToast } from '../../ui'
+import { Button, Card, FilePicker, Field, FormError, Section, useDesktopChrome, useToast } from '../../ui'
 import { UserAvatar } from '../../user-avatar'
 import { useSave } from './use-save'
 
@@ -31,6 +31,7 @@ export function ProfileSection() {
   const { user, applyMe, refresh } = useAuth()
   const ux = useUserX()
   const toast = useToast()
+  const desktop = useDesktopChrome()
   const [name, setName] = useState(user?.name ?? '')
   const { busy, error, submit } = useSave(async () => { applyMe(await api<Me>('PUT', '/api/account', { name })) })
 
@@ -85,9 +86,9 @@ export function ProfileSection() {
   return (
     <Section title={t('account.profile.title')}>
       <Card className="space-y-5">
-        <div className="flex flex-wrap items-center gap-5">
+        <div className="flex flex-wrap items-center gap-4 md:gap-5">
           <div className="relative">
-            <UserAvatar userId={user?.id ?? 0} name={user?.name ?? ''} src={shown} size={96} />
+            <UserAvatar userId={user?.id ?? 0} name={user?.name ?? ''} src={shown} size={desktop ? 96 : 64} />
             {preview && <span className="absolute inset-0 rounded-full ring-2 ring-accent" aria-hidden />}
           </div>
           <div className="min-w-0 flex-1 basis-60 space-y-2">
@@ -110,7 +111,7 @@ export function ProfileSection() {
           </div>
         </div>
         <form onSubmit={submit} className="space-y-4 border-t border-line pt-5">
-          <Field label={t('account.profile.name')}><input className="input sm:max-w-sm" required value={name} onChange={(e) => setName(e.target.value)} /></Field>
+          <Field label={t('account.profile.name')}><input className="input sm:max-w-sm" required autoComplete="name" enterKeyHint="done" autoCapitalize="words" value={name} onChange={(e) => setName(e.target.value)} /></Field>
           <FormError>{error}</FormError>
           <Button variant="primary" type="submit" disabled={busy || name.trim() === user?.name}>{t('common.save')}</Button>
         </form>

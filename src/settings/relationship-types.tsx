@@ -2,6 +2,8 @@ import { useState, type FormEvent } from 'react'
 import { ArrowDown, ArrowUp, Eye, EyeOff, Lock, Pencil, Plus, Trash2, Users } from 'lucide-react'
 import { useRelationshipTypes, useStore, type RelationshipTypeView } from '../store'
 import { t, useT } from '../i18n'
+import { TypeListShell } from './type-list'
+import { isCoarse } from '../controls'
 import { Badge, Button, Card, Field, IconButton, List, Modal, Row, Section, Select, Thumb, useConfirm } from '../ui'
 
 /** Create / rename dialog of a custom type (only the name) */
@@ -32,7 +34,7 @@ function TypeDialog({ type, onClose }: { type: RelationshipTypeView | null; onCl
         }
       >
         <Field label={t('settings.space.rel.name')}>
-          <input className="input" required autoFocus maxLength={60} placeholder={t('settings.space.rel.namePlaceholder')} value={name} onChange={(e) => setName(e.target.value)} />
+          <input className="input" required autoFocus={!isCoarse()} autoComplete="off" enterKeyHint="done" autoCapitalize="sentences" maxLength={60} placeholder={t('settings.space.rel.namePlaceholder')} value={name} onChange={(e) => setName(e.target.value)} />
         </Field>
       </Modal>
     </form>
@@ -94,37 +96,46 @@ export function RelationshipTypesSection() {
 
   return (
     <Section title={t('settings.space.rel.title')} action={canManage ? <Button size="sm" icon={Plus} onClick={() => setEdit('new')}>{t('settings.space.rel.new')}</Button> : undefined}>
-      <Card className="space-y-3">
-        <p className="text-sm text-muted">{t('settings.space.rel.sub')}{canManage ? ' ' + t('settings.space.rel.manageHint') : ''}</p>
-        {!canManage && <p className="text-sm text-muted">{t('settings.space.rel.readOnly')}</p>}
-        <List bare>
-          {list.map((x, i) => (
-            <Row
-              key={x.id}
-              dense
-              dim={!!x.hidden}
-              lead={<Thumb size={32} tone="accent" icon={Users} />}
-              title={x.label}
-              titleSuffix={<>
-                {x.builtin_key && <Badge icon={Lock}>{t('settings.space.rel.default')}</Badge>}
-                {x.hidden ? <Badge tone="warn">{t('settings.space.rel.hidden')}</Badge> : null}
-              </>}
-              meta={t('settings.space.rel.usage', { count: x.usage })}
-              actions={canManage && (
-                <>
-                  <IconButton size="sm" icon={ArrowUp} label={t('settings.space.rel.up', { name: x.label })} disabled={i === 0} onClick={() => move(i, -1)} />
-                  <IconButton size="sm" icon={ArrowDown} label={t('settings.space.rel.down', { name: x.label })} disabled={i === list.length - 1} onClick={() => move(i, 1)} />
-                  {x.hidden
-                    ? <IconButton size="sm" icon={Eye} label={t('settings.space.rel.show', { name: x.label })} onClick={() => void call('POST', `/api/relationship-types/${x.id}/show`)} />
-                    : <IconButton size="sm" icon={EyeOff} label={t('settings.space.rel.hide', { name: x.label })} onClick={() => void call('POST', `/api/relationship-types/${x.id}/hide`)} />}
-                  {!x.builtin_key && <IconButton size="sm" icon={Pencil} label={t('settings.space.rel.edit', { name: x.label })} onClick={() => setEdit(x)} />}
-                  {!x.builtin_key && <IconButton size="sm" icon={Trash2} label={t('settings.space.rel.remove', { name: x.label })} onClick={() => void remove(x)} />}
-                </>
-              )}
-            />
-          ))}
-        </List>
-      </Card>
+      <TypeListShell canReorder={canManage} summary={t('settings.space.list.summary', { count: list.length })}>
+        {({ reorder, compact, head }) => (
+        <Card className="space-y-3">
+            {head}
+          <p className="text-sm text-muted">{t('settings.space.rel.sub')}{canManage ? ' ' + t('settings.space.rel.manageHint') : ''}</p>
+          {!canManage && <p className="text-sm text-muted">{t('settings.space.rel.readOnly')}</p>}
+          <List bare>
+            {list.map((x, i) => (
+              <Row
+                key={x.id}
+                dense
+                dim={!!x.hidden}
+                lead={<Thumb size={32} tone="accent" icon={Users} />}
+                title={x.label}
+                titleSuffix={<>
+                  {x.builtin_key && <Badge icon={Lock}>{t('settings.space.rel.default')}</Badge>}
+                  {x.hidden ? <Badge tone="warn">{t('settings.space.rel.hidden')}</Badge> : null}
+                </>}
+                meta={t('settings.space.rel.usage', { count: x.usage })}
+                actions={canManage && (
+                  <>
+                    {(reorder || !compact) && <>
+                    <IconButton size="sm" icon={ArrowUp} label={t('settings.space.rel.up', { name: x.label })} disabled={i === 0} onClick={() => move(i, -1)} />
+                    <IconButton size="sm" icon={ArrowDown} label={t('settings.space.rel.down', { name: x.label })} disabled={i === list.length - 1} onClick={() => move(i, 1)} />
+                    </>}
+                    {(!reorder || !compact) && <>
+                    {x.hidden
+                      ? <IconButton size="sm" icon={Eye} label={t('settings.space.rel.show', { name: x.label })} onClick={() => void call('POST', `/api/relationship-types/${x.id}/show`)} />
+                      : <IconButton size="sm" icon={EyeOff} label={t('settings.space.rel.hide', { name: x.label })} onClick={() => void call('POST', `/api/relationship-types/${x.id}/hide`)} />}
+                    {!x.builtin_key && <IconButton size="sm" icon={Pencil} label={t('settings.space.rel.edit', { name: x.label })} onClick={() => setEdit(x)} />}
+                    {!x.builtin_key && <IconButton size="sm" icon={Trash2} label={t('settings.space.rel.remove', { name: x.label })} onClick={() => void remove(x)} />}
+                    </>}
+                  </>
+                )}
+              />
+            ))}
+          </List>
+        </Card>
+        )}
+      </TypeListShell>
       {edit && <TypeDialog type={edit === 'new' ? null : edit} onClose={() => setEdit(null)} />}
       {inUse && <InUseDialog type={inUse} others={list.filter((o) => o.id !== inUse.id && !o.hidden)} onClose={() => setInUse(null)} />}
     </Section>

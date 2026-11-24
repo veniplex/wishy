@@ -191,6 +191,8 @@ export interface MyWishlist {
   event_date: string | null
   archived: boolean | number
   link_enabled: boolean | number
+  /** People without an account may reserve through the link (default on) */
+  guest_claims?: boolean | number
   token: string
   url: string
   full_url: string
@@ -226,10 +228,15 @@ export interface ListView {
 export interface PublicView {
   wishlist: { id: number; title: string; description: string | null; event_date: string | null }
   owner: { id: number; name: string }
+  /** What the page needs besides the list, so it works when only the shared paths pass a sign-in proxy */
+  app?: { name: string; default_locale: string }
+  guest_claims?: boolean
   is_owner: boolean
   logged_in: boolean
   following: boolean
   wishes: (Wish | SharedWish)[]
+  /** The guest this browser is on this list (null: not known to the server yet); absent for signed-in people */
+  guest?: { code: string; name: string; claims: number } | null
 }
 export interface KnownUser { id: number; name: string; email: string }
 export interface AdminUser {

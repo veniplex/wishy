@@ -38,4 +38,11 @@ export default {
   'invite.title': 'Einladung zu „{space}“',
   'invite.subNamed': '{name} lädt dich ein, Geschenke gemeinsam zu planen.',
   'invite.sub': 'Du wurdest eingeladen, Geschenke gemeinsam zu planen.',
+  'passkey.button': 'Mit Passkey anmelden',
+  'passkey.hint': 'Ohne Passwort: mit Fingerabdruck, Gesicht oder Geräte-PIN.',
+  'passkey.waiting': 'Folge den Anweisungen deines Browsers oder Geräts …',
+  'passkey.cancelled': 'Die Anmeldung wurde abgebrochen. Du kannst es erneut versuchen oder dich mit E-Mail und Passwort anmelden.',
+  'passkey.failed': 'Die Anmeldung mit dem Passkey hat nicht geklappt. Der Passkey ist hier unbekannt oder wurde entfernt. Melde dich mit E-Mail und Passwort an.',
+  'passkey.expired': 'Die Anfrage ist abgelaufen. Bitte versuche es erneut.',
+  'passkey.tooMany': 'Zu viele Versuche. Bitte warte ein paar Minuten.',
 } as const

@@ -49,7 +49,8 @@ async function asset(request, event) {
   const hit = await cached(request)
   if (new URL(request.url).pathname === THEME) {
     const fresh = fetch(request).then(async (res) => {
-      if (res.ok) await (await caches.open(APP)).put(request, res.clone())
+      // Only the real script: never a page of a sign-in proxy that answers in its place
+      if (res.ok && !res.redirected && /javascript/i.test(res.headers.get('content-type') || '')) await (await caches.open(APP)).put(request, res.clone())
       return res
     })
     if (!hit) return fresh

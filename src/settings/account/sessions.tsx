@@ -4,7 +4,7 @@ import { api, errMsg, isOffline } from '../../api'
 import { useReachable } from '../../offline/hooks'
 import { NeedsConnection } from '../../offline/ui'
 import { fmtDateTime, t, useT } from '../../i18n'
-import { Badge, Button, Card, EmptyState, Section, useConfirm, useToast } from '../../ui'
+import { Badge, Button, Card, EmptyState, Section, ToggleLink, useConfirm, useToast } from '../../ui'
 
 interface SessionInfo {
   id: string
@@ -23,6 +23,7 @@ export function SessionsSection() {
   const confirm = useConfirm()
   const toast = useToast()
   const [list, setList] = useState<SessionInfo[] | null>(null)
+  const [all, setAll] = useState(false)
   const reachable = useReachable()
   const load = useCallback(() => api<SessionInfo[]>('GET', '/api/account/sessions').then(setList).catch((e) => { if (!isOffline(e)) toast(errMsg(e), 'bad') }), [toast])
   useEffect(() => { if (reachable) void load() }, [load, reachable])
@@ -55,7 +56,7 @@ export function SessionsSection() {
       <p className="text-sm text-muted -mt-2">{t('account.sessions.sub')}</p>
       {!reachable && !list && <NeedsConnection />}
       {list && list.length === 0 && <EmptyState icon={Laptop}>{t('account.sessions.empty')}</EmptyState>}
-      {(list ?? []).map((s) => {
+      {(all || !(list ?? []).some((s) => s.current) ? (list ?? []) : (list ?? []).filter((s) => s.current)).map((s) => {
         const mobile = /Android|iOS/.test(s.os)
         const Icon = mobile ? Smartphone : Laptop
         const device = s.device === 'Unknown' || s.device === 'Unbekannt' ? t('account.sessions.unknown') : s.device
@@ -70,6 +71,7 @@ export function SessionsSection() {
           </Card>
         )
       })}
+      {others > 0 && <ToggleLink chevron on={all} onToggle={() => setAll(!all)} labelOn={t("account.sessions.hideOthers")} labelOff={t("account.sessions.showOthers", { count: others })} className="self-start" />}
     </Section>
   )
 }

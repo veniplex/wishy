@@ -7,7 +7,11 @@ import { captureInstallPrompt } from './offline/install'
 import { startSync } from './offline/sync'
 import { registerServiceWorker } from './offline/sw-register'
 import './index.css'
+import { reloadOnceForChunkError } from './lazy'
 
+window.addEventListener('vite:preloadError', (e) => {
+  if (reloadOnceForChunkError()) e.preventDefault()
+})
 captureInstallPrompt()
 registerServiceWorker()
 startSync()

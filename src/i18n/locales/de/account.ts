@@ -79,5 +79,8 @@ export default {
   'sessions.revoked': 'Sitzung beendet',
   'sessions.revokedOthers': 'Andere Sitzungen beendet',
   'sessions.empty': 'Keine aktiven Sitzungen.',
+  'sessions.showOthers_one': '{count} weiteres Gerät anzeigen',
+  'sessions.showOthers_other': '{count} weitere Geräte anzeigen',
+  'sessions.hideOthers': 'Weitere Geräte ausblenden',
   'sessions.unknown': 'Unbekanntes Gerät',
 } as const

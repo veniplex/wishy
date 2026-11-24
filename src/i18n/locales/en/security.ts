@@ -2,7 +2,7 @@ import type de from '../de/security'
 
 const en: Record<keyof typeof de, string> = {
   'title': 'Two-factor authentication',
-  'intro': 'On top of your password, you need a second proof when signing in. This keeps your account safe even if your password leaks.',
+  'intro': 'With a passkey you sign in without any password. When you sign in with a password, you additionally need a second proof (passkey or app code). This keeps your account safe even if your password leaks.',
   'loading': 'Loading …',
   'status.on': 'on',
   'status.off': 'off',
@@ -18,6 +18,7 @@ const en: Record<keyof typeof de, string> = {
 
   'wizard.title': 'Set up authenticator app',
   'wizard.step1': 'Scan the QR code with your authenticator app.',
+  'wizard.openApp': 'Open in authenticator app',
   'wizard.qrAlt': 'QR code for setting up the authenticator app',
   'wizard.manual': 'Or enter this key by hand',
   'wizard.secret': 'Secret key',
@@ -29,14 +30,14 @@ const en: Record<keyof typeof de, string> = {
   'wizard.retry': 'Start over',
 
   'passkeys.title': 'Passkeys and security keys',
-  'passkeys.text': 'Fingerprint, face recognition, device PIN or a USB/NFC key as a second factor.',
-  'passkeys.add': 'Add passkey',
+  'passkeys.text': 'Sign in without a password using your fingerprint, face or device PIN. Passkeys also count as a second factor when you sign in with a password.',
+  'passkeys.add': 'Set up a passkey',
   'passkeys.empty': 'No passkey registered yet.',
-  'passkeys.unsupported': 'This browser does not support passkeys, or the page is not served over HTTPS.',
+  'passkeys.unsupported': 'This browser does not support passkeys, or the page is not served over HTTPS. Passkeys need a secure connection (HTTPS).',
   'passkeys.nameLabel': 'Passkey name',
   'passkeys.nameHint': 'Helps you recognise it later, e.g. “Laptop” or “YubiKey”.',
   'passkeys.nameDefault': 'Security key',
-  'passkeys.addTitle': 'Add a passkey',
+  'passkeys.addTitle': 'Set up a passkey',
   'passkeys.addAction': 'Continue',
   'passkeys.waiting': 'Follow the prompt from your browser or device …',
   'passkeys.cancelled': 'The request was cancelled or timed out.',
@@ -109,5 +110,14 @@ const en: Record<keyof typeof de, string> = {
   'reauth.textNoPassword': 'You don’t have a password yet. Confirm again with your Google account or with a code from your authenticator app.',
   'reauth.google': 'Confirm with Google',
   'reauth.done': 'Confirmed. You can continue now.',
+  'passkeys.setupText': 'With a passkey you sign in without a password: just your fingerprint, face or device PIN. It replaces both password and second factor.',
+  'passkeys.passwordless': 'works without a password',
+  'passkeys.secondFactorOnly': 'second factor only',
+  'passkeys.secondFactorOnlyLabel': 'Use only as a second factor',
+  'passkeys.secondFactorOnlyHint': 'For older USB or NFC keys that cannot store passkeys. It does not sign you in on its own; you confirm with it after your password.',
+  'passkeys.addHint': 'Your browser will ask for your fingerprint, face or PIN. The passkey must be protected by a screen lock or biometrics.',
+  'passkeys.notDiscoverableHint': 'If this fails, your key cannot store passkeys. Choose “Use only as a second factor” instead.',
+  'reauth.passkey': 'Passkey',
+  'reauth.passkeyAction': 'Confirm with passkey',
 }
 export default en

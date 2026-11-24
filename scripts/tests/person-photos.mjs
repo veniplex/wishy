@@ -69,7 +69,7 @@ const t = (name, cond, extra) => {
   else { failN++; results.push('FAIL ' + name + (extra !== undefined ? ' -> ' + JSON.stringify(extra).slice(0, 400) : '')) }
 }
 const ok = (r) => r.status === 200
-const rawDb = () => new DatabaseSync(path.join(DATA, 'wishlist.db'))
+const rawDb = () => new DatabaseSync(path.join(DATA, 'wishlist.db'), { timeout: 5000 }) // the server writes at the same time
 const files = () => (fs.existsSync(AV) ? fs.readdirSync(AV).sort() : [])
 
 // Smallest valid PNG (1x1) plus padding variants to make files distinguishable

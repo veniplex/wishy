@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Builds the issue text for the weekly security watcher (.github/workflows/watch.yml).
 //   node scripts/lib/watch-report.mjs --trivy trivy.json --audit audit.json --components components.json
-//        [--last last.release.json] [--base-tag node:24-alpine] [--pinned-digest sha256:...] [--latest-digest sha256:...]
+//        [--last last.release.json] [--base-tag node:26-alpine] [--pinned-digest sha256:...] [--latest-digest sha256:...]
 //        [--ref v1.0.0] [--out report.md]
 // Inputs:
 //   trivy.json       Trivy JSON report of the freshly built image (HIGH/CRITICAL, unfixed findings already filtered)

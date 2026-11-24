@@ -3,10 +3,11 @@ import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-r
 import { CircleAlert } from 'lucide-react'
 import { api, errMsg, loginError, registrationMode, type Me } from './api'
 import { peekNext, rememberNext, takeNext, useAuth } from './auth'
-import { Banner, Button, CenteredCard, Field, FormError, PageSkeleton } from './ui'
+import { Banner, Button, CenteredCard, Field, FormError, PageSkeleton, isCoarse } from './ui'
 import { LanguageMenu } from './i18n/switch'
 import { TwoFactorStep, twoFactorOf, type LoginResponse, type TwoFactorMethod } from './auth-2fa'
 import { getLocale, useT } from './i18n'
+import { PasskeyLoginButton, usePasskeyLogin } from './auth-passkey'
 
 /** Centered card with a small language switcher at the top right */
 function AuthCard(props: Parameters<typeof CenteredCard>[0]) {
@@ -81,8 +82,10 @@ export function Login() {
       .catch(() => { /* abgelaufen: normale Anmeldung */ })
     return () => { alive = false }
   }, [pendingTf]) // eslint-disable-line react-hooks/exhaustive-deps
+  const pk = usePasskeyLogin((me) => { applyMe(me); nav(takeNext(), { replace: true }) }, !tf && !redirect)
   const { busy, error, onSubmit } = useSubmit(async () => {
-    const r = await api<LoginResponse>('POST', '/api/auth/login', { email, password })
+    pk.cancel() // abort a pending passkey (autofill) request before the password is sent
+    const r = await api<LoginResponse>('POST', '/api/auth/login', { email, password }).catch((e) => { pk.rearm(); throw e })
     const f = twoFactorOf(r)
     if (f) { setTf({ ticket: f.ticket, methods: f.methods }); setPassword(''); return }
     applyMe(r as Me)
@@ -101,9 +104,10 @@ export function Login() {
       }
     >
       {urlError && <Banner tone="bad" icon={CircleAlert}>{urlError}</Banner>}
+      <PasskeyLoginButton pk={pk} />
       <GoogleButton label={t('auth.login.google')} />
       <form className="space-y-4" onSubmit={onSubmit}>
-        <Field label={t('auth.field.email')}><input className="input" type="email" required autoFocus autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} /></Field>
+        <Field label={t('auth.field.email')}><input className="input" type="email" required autoFocus={!isCoarse()} autoComplete="username webauthn" value={email} onChange={(e) => setEmail(e.target.value)} /></Field>
         <Field label={t('auth.field.password')}><input className="input" type="password" required autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} /></Field>
         <FormError>{error}</FormError>
         <Button variant="primary" type="submit" className="w-full" disabled={busy}>{t('auth.login.title')}</Button>
@@ -158,10 +162,10 @@ export function Register() {
           {!bound && <GoogleButton invite={invite} label={t('auth.register.google')} />}
           <form className="space-y-4" onSubmit={onSubmit}>
             <Field label={t('auth.field.name')} hint={bound ? t('auth.register.boundHint') : undefined}>
-              <input className="input" required readOnly={bound} autoFocus={!bound} autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} />
+              <input className="input" required readOnly={bound} autoFocus={!bound && !isCoarse()} autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} />
             </Field>
             <Field label={t('auth.field.email')}><input className="input" type="email" required readOnly={bound} autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} /></Field>
-            <Field label={t('auth.field.password')} hint={t('auth.field.passwordHint')}><input className="input" key={String(bound)} type="password" required minLength={8} autoFocus={bound} autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} /></Field>
+            <Field label={t('auth.field.password')} hint={t('auth.field.passwordHint')}><input className="input" key={String(bound)} type="password" required minLength={8} autoFocus={bound && !isCoarse()} autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} /></Field>
             <FormError>{error}</FormError>
             <Button variant="primary" type="submit" className="w-full" disabled={busy}>{t('auth.register.title')}</Button>
           </form>
@@ -187,7 +191,7 @@ export function Setup() {
   return (
     <AuthCard brand={appName} title={t('auth.setup.title')} sub={t('auth.setup.sub')}>
       <form className="space-y-4" onSubmit={onSubmit}>
-        <Field label={t('auth.field.name')}><input className="input" required autoFocus autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} /></Field>
+        <Field label={t('auth.field.name')}><input className="input" required autoFocus={!isCoarse()} autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} /></Field>
         <Field label={t('auth.field.email')}><input className="input" type="email" required autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} /></Field>
         <Field label={t('auth.field.password')} hint={t('auth.field.passwordHint')}><input className="input" type="password" required minLength={8} autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} /></Field>
         <FormError>{error}</FormError>
@@ -218,7 +222,7 @@ export function PasswordReset() {
         <Banner tone="bad" icon={CircleAlert}>{t('auth.reset.incomplete')}</Banner>
       ) : (
         <form className="space-y-4" onSubmit={onSubmit}>
-          <Field label={t('auth.reset.newPassword')} hint={t('auth.field.passwordHint')}><input className="input" type="password" required minLength={8} autoFocus autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} /></Field>
+          <Field label={t('auth.reset.newPassword')} hint={t('auth.field.passwordHint')}><input className="input" type="password" required minLength={8} autoFocus={!isCoarse()} autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} /></Field>
           <Field label={t('auth.reset.repeat')} error={mismatch && t('auth.reset.mismatch')}><input className="input" type="password" required autoComplete="new-password" value={again} onChange={(e) => setAgain(e.target.value)} /></Field>
           <FormError>{error}</FormError>
           <Button variant="primary" type="submit" className="w-full" disabled={busy}>{t('auth.reset.submit')}</Button>

@@ -6,7 +6,8 @@ import { useAuth } from './auth'
 import { fmtIntl, t } from './i18n'
 import { NewShared } from './wishlists'
 import { GIFT_STATUS, costFor, countdown, daysUntil, fmtDate, fmtDateShort, giftDateOf, giftYear, isCommitted, isLeftOutBirthday, isLive, joinNames, nextBirthday, parseDate, statusInfo, sum, type Occasion, type Person } from './lib'
-import { Avatar, Badge, Button, EmptyState, List, Money, Page, PageHeader, PillTabs, Progress, Row, Section, SearchField, Segmented, Select, Thumb, ToggleLink, Toolbar } from './ui'
+import { Avatar, Badge, Button, EmptyState, List, Modal, Money, Page, PageHeader, PillTabs, Progress, Row, Section, SearchField, Segmented, Select, Thumb, ToggleLink, Toolbar } from './ui'
+import { SlidersHorizontal } from 'lucide-react'
 import { PersonSelect } from './pickers'
 import { GiftRow, ItemRow, OccasionRow, rich, useOccasionStats } from './components'
 import { CalendarMonth } from './calendar-view'
@@ -290,6 +291,8 @@ export function Gifts() {
   const [pid, setPid] = useState(0)
   const [status, setStatus] = useState('')
   const [pay, setPay] = useState('')
+  const [filters, setFilters] = useState(false)
+  const active = (range !== 'upcoming' ? 1 : 0) + (pid ? 1 : 0) + (status ? 1 : 0) + (pay ? 1 : 0)
   const years = [...new Set(s.gifts.map((g) => giftYear(s, g)))].sort().reverse()
   const list = s.gifts
     .filter((g) => {
@@ -316,24 +319,54 @@ export function Gifts() {
       <Section>
         <Toolbar>
           <SearchField className="flex-1 min-w-48 max-sm:basis-full" aria-label={t('gifts.searchAria')} placeholder={t('gifts.searchPlaceholder')} value={q} onChange={(e) => setQ(e.target.value)} />
-          <Select inline className="max-sm:flex-1" aria-label={t('gifts.range.aria')} value={range} onChange={(e) => setRange(e.target.value)}>
+          {/* Phones: the four filters live in one sheet (with the number of active ones); from sm they stay inline */}
+          <Button className="sm:hidden" icon={SlidersHorizontal} onClick={() => setFilters(true)}>{t('gifts.filter.button')}{active > 0 && <Badge tone="accent">{active}</Badge>}</Button>
+          <span className="contents max-sm:hidden">
+          <Select inline aria-label={t('gifts.range.aria')} value={range} onChange={(e) => setRange(e.target.value)}>
             <option value="upcoming">{t('gifts.range.upcoming')}</option>
             <option value="all">{t('gifts.range.all')}</option>
             {years.map((y) => <option key={y} value={y}>{y}</option>)}
           </Select>
-          <PersonSelect inline create={false} className="max-sm:flex-1" label={t('give.person')} none={t('give.allPersons')} persons={activePersons} value={pid} onChange={setPid} />
-          <Select inline className="max-sm:flex-1" aria-label={t('gifts.status.aria')} value={status} onChange={(e) => setStatus(e.target.value)}>
+          <PersonSelect inline create={false} label={t('give.person')} none={t('give.allPersons')} persons={activePersons} value={pid} onChange={setPid} />
+          <Select inline aria-label={t('gifts.status.aria')} value={status} onChange={(e) => setStatus(e.target.value)}>
             <option value="">{t('gifts.status.all')}</option>
             {GIFT_STATUS.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}
           </Select>
-          <Select inline className="max-sm:flex-1" aria-label={t('gifts.pay.aria')} value={pay} onChange={(e) => setPay(e.target.value)}>
+          <Select inline aria-label={t('gifts.pay.aria')} value={pay} onChange={(e) => setPay(e.target.value)}>
             <option value="">{t('gifts.pay.all')}</option>
             <option value="unpaid">{t('gifts.pay.unpaid')}</option>
             <option value="open">{t('gifts.pay.open')}</option>
             <option value="paid">{t('gifts.pay.paid')}</option>
           </Select>
+          </span>
           <Segmented<GiftView> label={t('gifts.view.label')} value={view} onChange={setView} options={[{ value: 'person', label: t('gifts.view.person') }, { value: 'date', label: t('gifts.view.date') }]} />
         </Toolbar>
+        {filters && (
+          <Modal
+            title={t('gifts.filter.title')}
+            onClose={() => setFilters(false)}
+            footer={<><Button variant="ghost" disabled={!active} onClick={() => { setRange('upcoming'); setPid(0); setStatus(''); setPay('') }}>{t('gifts.filter.reset')}</Button><span className="flex-1" /><Button variant="primary" onClick={() => setFilters(false)}>{t('gifts.filter.apply', { count: list.length })}</Button></>}
+          >
+            <div className="grid gap-3">
+              <Select aria-label={t('gifts.range.aria')} value={range} onChange={(e) => setRange(e.target.value)}>
+                <option value="upcoming">{t('gifts.range.upcoming')}</option>
+                <option value="all">{t('gifts.range.all')}</option>
+                {years.map((y) => <option key={y} value={y}>{y}</option>)}
+              </Select>
+              <PersonSelect create={false} label={t('give.person')} none={t('give.allPersons')} persons={activePersons} value={pid} onChange={setPid} />
+              <Select aria-label={t('gifts.status.aria')} value={status} onChange={(e) => setStatus(e.target.value)}>
+                <option value="">{t('gifts.status.all')}</option>
+                {GIFT_STATUS.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}
+              </Select>
+              <Select aria-label={t('gifts.pay.aria')} value={pay} onChange={(e) => setPay(e.target.value)}>
+                <option value="">{t('gifts.pay.all')}</option>
+                <option value="unpaid">{t('gifts.pay.unpaid')}</option>
+                <option value="open">{t('gifts.pay.open')}</option>
+                <option value="paid">{t('gifts.pay.paid')}</option>
+              </Select>
+            </div>
+          </Modal>
+        )}
         {view === 'person' && list.length > 0 ? (
           <div className="space-y-8 pt-2">
             {groupByPerson(list, (g) => g.recipient_ids, person).map((gr) => (
@@ -392,12 +425,12 @@ export function Ideas() {
       />
       <InboxSection />
       <Section>
+        {s.permissions.manage_gifts && <form onSubmit={quickAdd} enterKeyHint="done">
+          <SearchField icon={Plus} enterKeyHint="done" aria-label={t('give.ideas.quickAria')} placeholder={pid ? t('give.ideas.quickPhFor', { name: person(pid)?.name ?? '' }) : t('give.ideas.quickPh')} value={quick} onChange={(e) => setQuick(e.target.value)} />
+        </form>}
         <Toolbar>
           <PersonSelect inline create={false} className="max-sm:flex-1" label={t('give.person')} none={t('give.allPersons')} persons={others} value={pid} onChange={setPid} />
         </Toolbar>
-        {s.permissions.manage_gifts && <form onSubmit={quickAdd}>
-          <SearchField icon={Plus} aria-label={t('give.ideas.quickAria')} placeholder={pid ? t('give.ideas.quickPhFor', { name: person(pid)?.name ?? '' }) : t('give.ideas.quickPh')} value={quick} onChange={(e) => setQuick(e.target.value)} />
-        </form>}
         {!pid && list.length > 0 ? (
           <div className="space-y-8 pt-2">
             {groupByPerson(list, (i) => [i.person_id], person).map((gr) => (

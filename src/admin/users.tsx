@@ -1,13 +1,16 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
-import { Ban, CircleCheck, KeyRound, Link2, Pencil, Plus, ShieldCheck, ShieldOff, Trash2, UserRound } from 'lucide-react'
+import { Ban, CircleCheck, KeyRound, Link2, LogOut, MonitorSmartphone, Pencil, Plus, ShieldCheck, ShieldOff, Trash2, UserRound } from 'lucide-react'
 import { api, errMsg, type AdminUser } from '../api'
 import { useAuth } from '../auth'
 import { fmtDateTime, t } from '../i18n'
-import { Badge, Banner, Button, Card, CopyField, EmptyState, Field, FormError, IconButton, List, Modal, Row, Section, Segmented, useConfirm, useToast } from '../ui'
+import { Badge, Banner, Button, Card, CopyField, EmptyState, Field, FormError, List, Modal, Row, Section, Segmented, useConfirm, useToast } from '../ui'
+import { isCoarse } from '../controls'
 import { UserAvatar } from '../user-avatar'
-import { SectionHead } from './shared'
+import { RowActions, SectionHead } from './shared'
 
-type AdminUserX = AdminUser
+/** Last activity and IP come from the user's most recent session (admin only) */
+type AdminUserX = AdminUser & { last_seen_at?: string | null; last_ip?: string | null }
+interface UserSession { id: string; device: string; user_agent: string | null; ip: string | null; created_at: string; last_seen_at: string; current: boolean }
 /** Per-user toggle: null = default (global), true = on, false = off */
 type Tri = null | boolean
 interface FeatureRow { id: number; ai_enabled: Tri; api_enabled: Tri; features?: { ai?: boolean; api?: boolean } }
@@ -54,20 +57,20 @@ function UserDialog({ user, features, onClose, onDone }: { user?: AdminUserX; fe
   return (
     <form onSubmit={submit}>
       <Modal title={user ? t('admin.users.dialogEdit') : t('admin.users.dialogCreate')} onClose={onClose} footer={<><span className="flex-1" /><Button onClick={onClose}>{t('common.cancel')}</Button><Button variant="primary" type="submit">{user ? t('admin.save') : t('admin.users.create.submit')}</Button></>}>
-        <Field label={t('admin.users.name')}><input className="input" required autoFocus value={name} onChange={(e) => setName(e.target.value)} /></Field>
-        <Field label={t('admin.users.email')}><input className="input" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} /></Field>
+        <Field label={t('admin.users.name')}><input className="input" required autoFocus={!isCoarse()} autoComplete="off" enterKeyHint="next" autoCapitalize="words" value={name} onChange={(e) => setName(e.target.value)} /></Field>
+        <Field label={t('admin.users.email')}><input className="input" type="email" required autoComplete="off" autoCapitalize="none" spellCheck={false} enterKeyHint={user ? "done" : "next"} value={email} onChange={(e) => setEmail(e.target.value)} /></Field>
         <Field label={t('admin.users.role')} group>
           <Segmented label={t('admin.users.role')} value={role} onChange={setRole} options={[{ value: 'user', label: t('admin.users.roleUser') }, { value: 'admin', label: t('admin.users.roleAdmin') }]} />
         </Field>
         {!user && (
           <Field label={t('admin.users.passwordOptional')} hint={t('admin.users.passwordOptionalHint')}>
-            <input className="input" type="password" minLength={8} autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} />
+            <input className="input" type="password" minLength={8} autoComplete="new-password" enterKeyHint="done" value={password} onChange={(e) => setPassword(e.target.value)} />
           </Field>
         )}
         {user && (
           <>
             <p className="label !mb-0">{t('adminUsers.features')}</p>
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <TriSwitch label={t('adminUsers.ai')} value={ai} onChange={setAi} />
               <TriSwitch label={t('adminUsers.api')} value={apiOn} onChange={setApiOn} />
             </div>
@@ -77,6 +80,60 @@ function UserDialog({ user, features, onClose, onDone }: { user?: AdminUserX; fe
         <FormError>{error}</FormError>
       </Modal>
     </form>
+  )
+}
+
+/** Active sessions of a user with IP and device, each with sign-out */
+function SessionsDialog({ user, onClose, onChanged }: { user: AdminUserX; onClose: () => void; onChanged: () => void }) {
+  const toast = useToast()
+  const confirm = useConfirm()
+  const [list, setList] = useState<UserSession[] | null>(null)
+  const load = useCallback(async () => {
+    try {
+      setList(await api<UserSession[]>('GET', `/api/admin/users/${user.id}/sessions`))
+    } catch (e) {
+      toast(errMsg(e), 'bad')
+    }
+  }, [user.id, toast])
+  useEffect(() => { void load() }, [load])
+  const revoke = async (s: UserSession) => {
+    try {
+      await api('DELETE', `/api/admin/users/${user.id}/sessions/${s.id}`)
+      toast(t('adminUsers.sessionRevoked'), 'ok')
+      await load()
+      onChanged()
+    } catch (e) {
+      toast(errMsg(e), 'bad')
+    }
+  }
+  const revokeAll = async () => {
+    if (!(await confirm({ title: t('adminUsers.sessionRevokeAllTitle'), text: t('adminUsers.sessionRevokeAllText', { name: user.name }), confirmLabel: t('adminUsers.sessionRevokeAll'), destructive: true }))) return
+    try {
+      await api('DELETE', `/api/admin/users/${user.id}/sessions`)
+      toast(t('adminUsers.sessionRevoked'), 'ok')
+      await load()
+      onChanged()
+    } catch (e) {
+      toast(errMsg(e), 'bad')
+    }
+  }
+  return (
+    <Modal title={t('adminUsers.sessionsTitle', { name: user.name })} onClose={onClose} footer={<><Button variant="danger" icon={LogOut} disabled={!list || list.filter((s) => !s.current).length === 0} onClick={revokeAll}>{t('adminUsers.sessionRevokeAll')}</Button><span className="flex-1" /><Button variant="primary" onClick={onClose}>{t('common.done')}</Button></>}>
+      {list && list.length === 0 && <p className="text-sm text-muted">{t('adminUsers.sessionsEmpty')}</p>}
+      {!list && <p className="text-sm text-muted">{t('admin.loading')}</p>}
+      <ul className="divide-y divide-line -my-2">
+        {(list ?? []).map((s) => (
+          <li key={s.id} className="py-3 flex items-start gap-3">
+            <div className="min-w-0 flex-1">
+              <div className="font-medium text-sm break-words" title={s.user_agent ?? undefined}>{s.device}{s.current && <> <Badge tone="accent">{t('adminUsers.sessionCurrent')}</Badge></>}</div>
+              <div className="meta font-mono text-xs break-all">{s.ip ?? '–'}</div>
+              <div className="meta">{t('adminUsers.sessionSeen', { when: fmtDateTime(s.last_seen_at) })} · {t('adminUsers.sessionSince', { when: fmtDateTime(s.created_at) })}</div>
+            </div>
+            {!s.current && <Button size="sm" onClick={() => revoke(s)}>{t('adminUsers.sessionRevoke')}</Button>}
+          </li>
+        ))}
+      </ul>
+    </Modal>
   )
 }
 
@@ -123,6 +180,7 @@ export function AdminUsers() {
   const [feats, setFeats] = useState<Record<number, FeatureRow>>({})
   const [dlg, setDlg] = useState<{ edit?: AdminUserX } | null>(null)
   const [link, setLink] = useState<{ title: string; text: string; url: string } | null>(null)
+  const [sess, setSess] = useState<AdminUserX | null>(null)
   const load = useCallback(async () => {
     try {
       const [list, f] = await Promise.all([api<AdminUserX[]>('GET', '/api/admin/users'), api<FeatureRow[]>('GET', '/api/admin/users/features')])
@@ -172,16 +230,18 @@ export function AdminUsers() {
               lead={<UserAvatar userId={u.id} name={u.name} src={u.avatar_url ?? null} size={44} />}
               title={u.id === me?.id ? t('admin.users.you', { name: u.name }) : u.name}
               dim={u.disabled}
-              meta={[u.email, [u.has_password && t('admin.users.password'), u.google_linked && t('admin.users.google')].filter(Boolean).join(' + ') || t('admin.users.noLogin'), t('admin.users.lastSeen', { when: u.last_login_at ? fmtDateTime(u.last_login_at) : t('common.never') })].join(' · ')}
+              extra={<span className="break-all">{u.email}</span>}
+              meta={[[u.has_password && t('admin.users.password'), u.google_linked && t('admin.users.google')].filter(Boolean).join(' + ') || t('admin.users.noLogin'), u.last_seen_at ? t('adminUsers.lastActive', { when: fmtDateTime(u.last_seen_at) }) : t('admin.users.lastSeen', { when: u.last_login_at ? fmtDateTime(u.last_login_at) : t('common.never') }), u.last_ip ? t('adminUsers.lastIp', { ip: u.last_ip }) : null].filter(Boolean).join(' · ')}
               trailing={<>{u.role === 'admin' ? <Badge tone="accent" icon={ShieldCheck}>{t('admin.users.roleAdmin')}</Badge> : <Badge>{t('admin.users.roleUser')}</Badge>}{u.two_factor ? <Badge tone="ok" icon={ShieldCheck}>{t('adminUsers.twoFactorOn')}</Badge> : null}{u.disabled ? <Badge tone="bad">{t('admin.users.disabled')}</Badge> : null}{feats[u.id]?.ai_enabled === false ? <Badge>{t('adminUsers.aiOff')}</Badge> : null}{feats[u.id]?.api_enabled === false ? <Badge>{t('adminUsers.apiOff')}</Badge> : null}</>}
               actions={
-                <>
-                  <IconButton icon={Pencil} size="sm" label={t('admin.users.edit', { name: u.name })} onClick={() => setDlg({ edit: u })} />
-                  <IconButton icon={u.disabled ? CircleCheck : Ban} size="sm" label={u.disabled ? t('admin.users.activate', { name: u.name }) : t('admin.users.deactivate', { name: u.name })} onClick={() => toggleDisabled(u)} />
-                  <IconButton icon={KeyRound} size="sm" label={t('admin.users.resetPassword', { name: u.name })} onClick={() => reset(u)} />
-                  {u.two_factor ? <IconButton icon={ShieldOff} size="sm" label={t('adminUsers.reset2fa', { name: u.name })} onClick={() => reset2fa(u)} /> : null}
-                  {u.id !== me?.id && <IconButton icon={Trash2} size="sm" variant="danger" label={t('admin.users.delete', { name: u.name })} onClick={() => del(u)} />}
-                </>
+                <RowActions actions={[
+                  { icon: Pencil, label: t('admin.users.edit', { name: u.name }), onClick: () => setDlg({ edit: u }) },
+                  { icon: MonitorSmartphone, label: t('adminUsers.sessions', { name: u.name }), onClick: () => setSess(u) },
+                  { icon: u.disabled ? CircleCheck : Ban, label: u.disabled ? t('admin.users.activate', { name: u.name }) : t('admin.users.deactivate', { name: u.name }), onClick: () => void toggleDisabled(u) },
+                  { icon: KeyRound, label: t('admin.users.resetPassword', { name: u.name }), onClick: () => void reset(u) },
+                  u.two_factor && { icon: ShieldOff, label: t('adminUsers.reset2fa', { name: u.name }), onClick: () => void reset2fa(u) },
+                  u.id !== me?.id && { icon: Trash2, danger: true, label: t('admin.users.delete', { name: u.name }), onClick: () => void del(u) },
+                ]} />
               }
             />
           ))}
@@ -201,6 +261,7 @@ export function AdminUsers() {
         />
       )}
       {link && <LinkDialog {...link} onClose={() => setLink(null)} />}
+      {sess && <SessionsDialog user={sess} onClose={() => setSess(null)} onChanged={() => void load()} />}
     </div>
   )
 }

@@ -57,7 +57,7 @@ const t = (name, cond, extra) => {
 }
 const ok = (r) => r.status === 200
 const code = (r, status, c) => r.status === status && r.data?.code === c
-const rawDb = () => new DatabaseSync(path.join(DATA, 'wishlist.db'))
+const rawDb = () => new DatabaseSync(path.join(DATA, 'wishlist.db'), { timeout: 5000 }) // the server writes at the same time
 const BUILTIN_KEYS = ['parent', 'child', 'sibling', 'partner', 'grandparent', 'grandchild', 'aunt_uncle', 'cousin', 'in_law', 'friend', 'colleague', 'neighbour', 'acquaintance', 'other']
 
 async function main() {

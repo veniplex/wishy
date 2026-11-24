@@ -93,6 +93,8 @@ export default {
   'unpricedBanner_other': 'Preis fehlt: {count} Anfragen konnten nicht berechnet werden. Trage die Preise der Modelle oben unter „Preise & Währung“ ein.',
   'chart.requests': 'Anfragen',
   'chart.tokens': 'Tokens (Eingabe + Ausgabe)',
+  'chart.moreCharts': 'Weitere Diagramme anzeigen',
+  'chart.lessCharts': 'Weniger Diagramme anzeigen',
   'chart.cost': 'Kosten in {currency}',
   'chart.tokensNote': 'Summe aus Eingabe- und Ausgabe-Tokens.',
   'chart.desc': 'Gestapelte Säulen für den Zeitraum {from} bis {to}. Die Werte stehen auch in der Tabelle darunter.',

@@ -868,14 +868,19 @@ async function main() {
   ok(r.data.items.length === 2, 'export audited', r.data.items.length)
   // Level
   r = await A.get('/api/admin/audit/settings')
-  ok(r.data.audit_level === 'security', 'default level security')
+  ok(r.data.audit_level === 'all' && r.data.audit_level_stored === false, 'default level all (never chosen)')
+  await A.put('/api/admin/audit/settings', { audit_level: 'security' }) // an explicit choice is kept
+  r = await A.get('/api/admin/audit/settings')
+  ok(r.data.audit_level === 'security' && r.data.audit_level_stored === true, 'explicit level security is kept')
   const cnt = async () => (await A.get('/api/admin/audit/settings')).data.total
   let c0 = await cnt()
+  const nPerson0 = (await A.get('/api/admin/audit?action=person.create&limit=200')).data.items.length // entries of the default level "all" phase
+  const nCapture0 = (await A.get('/api/admin/audit?action=api.capture&limit=200')).data.items.length
   await B.post('/api/persons', { name: 'Zoe' })
   await B.get('/api/state')
   ok((await cnt()) === c0 + 0 || true, 'noop')
   r = await A.get('/api/admin/audit?action=person.create')
-  ok(r.data.items.length === 0, 'security level: no planning entries')
+  ok((await A.get('/api/admin/audit?action=person.create&limit=200')).data.items.length === nPerson0, 'security level: no planning entries')
   r = await A.post('/api/zzz-unknown-route', { a: 1 })
   r = await A.get('/api/admin/audit?action=api.post.')
   ok(r.data.items.length === 0, 'security level: no generic entries')
@@ -888,13 +893,15 @@ async function main() {
   await A.post('/api/zzz-unknown-route/12/abc', { a: 1 })
   await A.post('/api/preview', { url: 'ftp://nope' })
   r = await A.get('/api/admin/audit?action=person.create')
-  ok(r.data.items.length === 1 && r.data.items[0].actor_user_id === bobId && r.data.items[0].via === 'session', 'all level: person.create', r.data.items)
+  ok(r.data.items.length === nPerson0 + 1 && r.data.items[0].actor_user_id === bobId && r.data.items[0].via === 'session', 'all level: person.create', r.data.items)
   ok(!JSON.stringify(r.data).includes('Zoe2') && !JSON.stringify(r.data).includes('SECRET'), 'no content in planning audit')
   r = await A.get('/api/admin/audit?action=api.post.*')
-  ok(r.data.items.some((i) => i.action === 'api.post./api/preview') && !r.data.items.some((i) => /zzz-unknown/.test(i.action)), 'generic actions at all level (authenticated only; 404s not audited)', r.data.items.map((i) => i.action))
+  ok(!r.data.items.some((i) => /zzz-unknown/.test(i.action)), 'generic actions: 404s are not audited', r.data.items.map((i) => i.action))
+  r = await A.get('/api/admin/audit?action=link.preview')
+  ok(r.data.items.length >= 1, 'link preview has its own action name', r.data.items)
   await api(KEY, 'POST', '/capture', { text: 'audit capture', use_ai: false })
   r = await A.get('/api/admin/audit?action=api.capture')
-  ok(r.data.items.length === 1 && r.data.items[0].via === 'api_key' && r.data.items[0].actor_user_id === bobId && r.data.items[0].details.created === 1, 'capture audited via api_key', r.data.items)
+  ok(r.data.items.length === nCapture0 + 1 && r.data.items[0].via === 'api_key' && r.data.items[0].actor_user_id === bobId && r.data.items[0].details.created === 1, 'capture audited via api_key', r.data.items)
   ok(!JSON.stringify(r.data).includes('audit capture'), 'capture body not logged')
   await A.put('/api/admin/audit/settings', { audit_level: 'security' })
 

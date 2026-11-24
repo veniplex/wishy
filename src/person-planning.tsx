@@ -136,7 +136,11 @@ function PlanTab({ p }: { p: Person }) {
       ) : (
         <Section title={t('give.detail.noOccasion')} action={<div className="flex flex-wrap justify-end gap-2">{ai}</div>}>
           {loose.length > 0 && <List>{loose.map((g) => <GiftRow key={g.id} g={g} except={p.id} kind />)}</List>}
-          {ideas.length > 0 && <div className="grid gap-4 grid-cols-[repeat(auto-fill,minmax(min(100%,220px),1fr))]">{ideas.map((i) => <IdeaCard key={i.id} i={i} kind />)}</div>}
+          {ideas.length > 0 && <>
+            {/* Phones: compact rows instead of tall tiles */}
+            <div className="sm:hidden"><List>{ideas.map((i) => <ItemRow key={i.id} i={i} kind />)}</List></div>
+            <div className="max-sm:hidden grid gap-4 grid-cols-[repeat(auto-fill,minmax(min(100%,220px),1fr))]">{ideas.map((i) => <IdeaCard key={i.id} i={i} kind />)}</div>
+          </>}
           {buttons && <div className="flex flex-wrap gap-2">{buttons}</div>}
         </Section>
       )}
@@ -180,6 +184,18 @@ function HistoryTab({ p }: { p: Person }) {
   )
 }
 
+/** Notes in the header: three lines on phones with "more", everything on larger screens */
+function PersonNotes({ text }: { text: string }) {
+  const [full, setFull] = useState(false)
+  const long = text.length > 110 || text.includes('\n')
+  return (
+    <div className="mt-3">
+      <p className={`text-sm whitespace-pre-wrap break-words ${full ? '' : 'max-md:line-clamp-3'}`}>{text}</p>
+      {long && <button type="button" className="md:hidden text-sm text-accent font-medium min-h-9 min-w-11 pointer-coarse:min-h-11" aria-expanded={full} onClick={() => setFull(!full)}>{full ? t('give.detail.notesLess') : t('give.detail.notesMore')}</button>}
+    </div>
+  )
+}
+
 export function PersonDetail() {
   const { personId } = useParams()
   const { s, person, open, itemState } = useStore()
@@ -203,32 +219,33 @@ export function PersonDetail() {
     { value: 'history' as const, label: t('give.detail.tab.history') },
   ]
   const current = tabs.some((x) => x.value === tab) ? tab : 'plan'
-  const pill = 'px-3.5 py-1.5 rounded-full bg-card/70 text-sm font-medium'
+  const pill = 'px-3 py-1 md:px-3.5 md:py-1.5 rounded-full bg-card/70 text-sm font-medium'
 
   return (
     <Page>
       <Crumbs back={{ to: '/gifting', label: t('nav.main.give') }} current={p.name} />
-      <section className="relative rounded-[28px] p-5 md:p-8 flex flex-wrap items-center gap-6" style={{ background: tintOf(p.id) }}>
-        <Avatar p={p} size={96} ring="var(--accent)" />
-        <div className="flex-1 basis-72 min-w-0">
-          <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
-            <h1 className="h1">{p.name}</h1>
-            {p.relationship && <span className="text-lg">{relTypes.labelOf(p.relationship)}</span>}
-          </div>
-          <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 mt-3 text-[15px]">
+      <section className="relative rounded-[28px] p-4 md:p-8 grid grid-cols-[auto_minmax(0,1fr)] md:grid-cols-[auto_minmax(0,1fr)_auto] gap-x-4 gap-y-3 md:gap-x-6 md:gap-y-0 items-center" style={{ background: tintOf(p.id) }}>
+        <span className="shrink-0 md:hidden"><Avatar p={p} size={64} ring="var(--accent)" /></span>
+        <span className="shrink-0 max-md:hidden md:row-span-2"><Avatar p={p} size={96} ring="var(--accent)" /></span>
+        <div className="min-w-0 pr-11 md:pr-0">
+          <h1 className="h1 max-md:text-[1.4rem] break-words hyphens-auto">{p.name}</h1>
+          {p.relationship && <div className="text-sm md:text-lg mt-0.5">{relTypes.labelOf(p.relationship)}</div>}
+        </div>
+        <div className="min-w-0 col-span-2 md:col-span-1 md:col-start-2">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 md:mt-2 text-sm md:text-[15px]">
             {bday
-              ? <span className="inline-flex items-center gap-2"><CalendarHeart size={18} />{t(bday.age ? 'give.detail.birthdayAge' : 'give.detail.birthday', { date: fmtDate(bday.date, false), countdown: countdown(daysUntil(bday.date, s.today)), age: bday.age ?? 0 })}</span>
+              ? <span className="inline-flex items-center gap-2"><CalendarHeart size={16} className="shrink-0" />{t(bday.age ? 'give.detail.birthdayAge' : 'give.detail.birthday', { date: fmtDate(bday.date, false), countdown: countdown(daysUntil(bday.date, s.today)), age: bday.age ?? 0 })}</span>
               : s.permissions.manage_persons && <Button size="sm" icon={CalendarHeart} onClick={() => open({ type: 'person', initial: p, focus: 'birthday' })}>{t('give.detail.addBirthday')}</Button>}
-            {linkedName && <span className="inline-flex items-center gap-2"><Link2 size={18} />{t('give.detail.linked', { name: linkedName })}</span>}
+            {linkedName && <span className="inline-flex items-center gap-2"><Link2 size={16} className="shrink-0" />{t('give.detail.linked', { name: linkedName })}</span>}
           </div>
-          <div className="flex flex-wrap gap-2 mt-4">
+          <div className="flex flex-wrap gap-1.5 md:gap-2 mt-3 md:mt-4">
             <span className={pill}>{t('give.persons.openIdeas', { count: openCount })}</span>
             {p.yearly_budget ? <span className={pill}>{rich('give.detail.budget', { amount: <Money n={p.yearly_budget} /> })}</span> : null}
             {giftCount > 0 && <span className={pill}>{t('give.detail.giftsCount', { count: giftCount })}</span>}
           </div>
-          {p.notes && <p className="text-sm mt-3 whitespace-pre-wrap">{p.notes}</p>}
+          {p.notes && <PersonNotes text={p.notes} />}
         </div>
-        {s.permissions.manage_persons && <IconButton icon={Pencil} label={t('give.detail.edit')} className="icon-btn-surface absolute top-4 right-4 md:static md:self-start" onClick={() => open({ type: 'person', initial: p })} />}
+        {s.permissions.manage_persons && <IconButton icon={Pencil} label={t('give.detail.edit')} className="icon-btn-surface absolute top-3 right-3 md:static md:self-start md:row-span-2 md:col-start-3 md:row-start-1" onClick={() => open({ type: 'person', initial: p })} />}
       </section>
 
       <PillTabs label={t('give.detail.tabsLabel', { name: p.name })} value={current} onChange={setTab} items={tabs} />

@@ -4,9 +4,10 @@ import { ApiError, api, errMsg } from '../api'
 import { useAuth } from '../auth'
 import { fmtDateTime, fmtNumber, t, useT, type TKey } from '../i18n'
 import { reportMaintenance } from '../maintenance-state'
-import { Badge, Banner, Button, Card, Field, FilePicker, FormError, IconButton, List, Modal, Row, Section, Segmented, Select, Stat, Switch, TwoCol, useConfirm, useToast, type BadgeTone } from '../ui'
+import { Badge, Banner, Button, Card, Field, FilePicker, FormError, List, Modal, Row, Section, Segmented, Select, Stat, Switch, TwoCol, useConfirm, useToast, type BadgeTone } from '../ui'
 import { ProgressBar } from '../update-parts'
-import { SectionHead } from './shared'
+import { RowActions, SectionHead } from './shared'
+import { isCoarse } from '../controls'
 import { fmtSize } from './system'
 
 // ───────────── Types ─────────────
@@ -130,7 +131,7 @@ function RestoreDialog({ backup, supervised, onClose, onDone }: { backup: Backup
         </div>
         {askPass && (
           <Field label={t('backup.restore.passphrase')} hint={askPass ? t('backup.restore.passphraseNeeded') : undefined}>
-            <input className="input" type="password" autoComplete="off" value={pass} onChange={(e) => setPass(e.target.value)} />
+            <input className="input" type="password" autoComplete="off" enterKeyHint="done" value={pass} onChange={(e) => setPass(e.target.value)} />
           </Field>
         )}
         <Field label={t('backup.restore.confirm', { word })}>
@@ -199,7 +200,7 @@ function UploadCard({ maxMb, onUploaded }: { maxMb: number; onUploaded: () => vo
     <Card className="space-y-4">
       <h3 className="h3">{t('backup.upload.title')}</h3>
       {!file ? (
-        <FilePicker accept=".wbk,.enc,.wbk.enc" icon={Upload} label={t('backup.upload.drop')} hint={t('backup.upload.hint', { max: fmtNumber(maxMb) })} onFile={pick} />
+        <FilePicker accept=".wbk,.enc,.wbk.enc" icon={Upload} label={isCoarse() ? t('backup.upload.choose') : t('backup.upload.drop')} hint={t('backup.upload.hint', { max: fmtNumber(maxMb) })} onFile={pick} />
       ) : (
         <>
           <div className="flex items-center gap-3 rounded-xl bg-hover px-3.5 py-2.5 text-sm">
@@ -289,7 +290,7 @@ function SettingsCard({ s, onSaved }: { s: BackupSettings; onSaved: (s: BackupSe
   }
   const hours = Array.from({ length: 24 }, (_, h) => ({ value: String(h), label: `${String(h).padStart(2, '0')}:00` }))
   const weekdays = [1, 2, 3, 4, 5, 6, 0].map((d) => ({ value: String(d), label: t(`backup.settings.wd.${d}` as TKey) }))
-  const numInput = (value: string, set: (v: string) => void, min = 0) => <input className="input" type="number" inputMode="numeric" min={min} step={1} value={value} onChange={(e) => set(e.target.value)} />
+  const numInput = (value: string, set: (v: string) => void, min = 0) => <input className="input" type="number" inputMode="numeric" enterKeyHint="done" min={min} step={1} value={value} onChange={(e) => set(e.target.value)} />
 
   return (
     <form onSubmit={save}>
@@ -303,7 +304,7 @@ function SettingsCard({ s, onSaved }: { s: BackupSettings; onSaved: (s: BackupSe
           />
         </Field>
         {schedule !== 'off' && (
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             {schedule === 'weekly' && (
               <Field label={t('backup.settings.weekday')} group>
                 <Select value={weekday} onChange={(e) => setWeekday(e.target.value)} options={weekdays} aria-label={t('backup.settings.weekday')} />
@@ -317,7 +318,7 @@ function SettingsCard({ s, onSaved }: { s: BackupSettings; onSaved: (s: BackupSe
 
         <div className="space-y-3 border-t border-line pt-5">
           <h3 className="h3">{t('backup.settings.retention')}</h3>
-          <div className="grid gap-4 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <Field label={t('backup.settings.keepLast')} hint={t('backup.settings.keepLastHint')}>{numInput(keepLast, setKeepLast)}</Field>
             <Field label={t('backup.settings.keepDays')} hint={t('backup.settings.keepDaysHint')}>{numInput(keepDays, setKeepDays)}</Field>
             <Field label={t('backup.settings.keepPre')} hint={t('backup.settings.keepPreHint')}>{numInput(keepPre, setKeepPre, 1)}</Field>
@@ -335,9 +336,9 @@ function SettingsCard({ s, onSaved }: { s: BackupSettings; onSaved: (s: BackupSe
             {s.passphrase_env ? (
               <p className="text-sm text-muted">{t('backup.settings.passphraseEnv')}</p>
             ) : typing ? (
-              <div className="grid gap-4 sm:grid-cols-2">
-                <Field label={t('backup.settings.passphraseNew')}><input className="input" type="password" autoComplete="new-password" value={pass} onChange={(e) => setPass(e.target.value)} /></Field>
-                <Field label={t('backup.settings.passphraseRepeat')}><input className="input" type="password" autoComplete="new-password" value={pass2} onChange={(e) => setPass2(e.target.value)} /></Field>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <Field label={t('backup.settings.passphraseNew')}><input className="input" type="password" autoComplete="new-password" enterKeyHint="next" value={pass} onChange={(e) => setPass(e.target.value)} /></Field>
+                <Field label={t('backup.settings.passphraseRepeat')}><input className="input" type="password" autoComplete="new-password" enterKeyHint="done" value={pass2} onChange={(e) => setPass2(e.target.value)} /></Field>
                 {s.passphrase_set && <div><Button size="sm" variant="ghost" onClick={() => { setEditPass(false); setPass(''); setPass2('') }}>{t('common.cancel')}</Button></div>}
               </div>
             ) : (
@@ -485,21 +486,21 @@ export function AdminBackups() {
         <Stat label={t('backup.status.storage')} value={fmtSize(total)} sub={t('backup.status.storageSub', { count: backups.length })} />
       </div>
 
-      <TwoCol>
+      <div className="max-md:order-2"><TwoCol>
         <form onSubmit={create}>
           <Card className="space-y-4">
             <h3 className="h3">{t('backup.create.title')}</h3>
             <Field label={t('backup.create.label')}>
-              <input className="input" maxLength={40} placeholder={t('backup.create.labelPlaceholder')} value={label} onChange={(e) => setLabel(e.target.value)} />
+              <input className="input" maxLength={40} autoComplete="off" enterKeyHint="done" autoCapitalize="sentences" placeholder={t('backup.create.labelPlaceholder')} value={label} onChange={(e) => setLabel(e.target.value)} />
             </Field>
             <p className="meta">{settings.encrypt ? t('backup.create.encrypted') : t('backup.create.plain')}</p>
             <Button variant="primary" type="submit" icon={DatabaseBackup} disabled={creating || busyRemote}>{creating ? t('backup.create.running') : t('backup.create.action')}</Button>
           </Card>
         </form>
         <UploadCard maxMb={settings.max_upload_mb} onUploaded={() => void load()} />
-      </TwoCol>
+      </TwoCol></div>
 
-      <Section title={t('backup.list.title')}>
+      <Section title={t('backup.list.title')} className="max-md:order-1">
         {busyRemote && <p className="meta">{t('backup.list.busy')}</p>}
         <List empty={<div className="card p-6 text-sm text-muted text-center">{t('backup.list.empty')}</div>}>
           {backups.map((b) => (
@@ -508,29 +509,32 @@ export function AdminBackups() {
               lead={<span className="grid place-items-center size-11 rounded-full bg-hover text-muted">{b.encrypted ? <Lock size={18} /> : <Archive size={18} />}</span>}
               title={`${fmtDateTime(b.created_at)}${b.label ? ` · ${b.label}` : ''}`}
               titleSuffix={<><Badge tone={REASON_TONE[b.reason] ?? 'neutral'}>{reasonLabel(b.reason)}</Badge>{b.uploaded && b.reason !== 'uploaded' && <Badge>{reasonLabel('uploaded')}</Badge>}</>}
-              meta={[b.version ? t('backup.item.version', { version: b.version }) : null, fmtSize(b.size), b.name].filter(Boolean).join(' · ')}
+              meta={[b.version ? t('backup.item.version', { version: b.version }) : null, fmtSize(b.size)].filter(Boolean).join(' · ')}
               extra={
-                <span className="flex flex-wrap items-center gap-1.5">
+                <>
+                <span className="block break-all">{b.name}</span>
+                <span className="flex flex-wrap items-center gap-1.5 mt-1">
                   {b.encrypted && <Badge icon={Lock}>{t('backup.item.encrypted')}</Badge>}
                   {b.verified === true && <Badge tone="ok" icon={ShieldCheck}>{t('backup.item.verified')}</Badge>}
                   {b.verified === false && <Badge tone="bad" icon={CircleAlert}>{t('backup.item.corrupt')}</Badge>}
                   {b.verified === null && <Badge>{t('backup.item.notVerified')}</Badge>}
                 </span>
+                </>
               }
               actions={
-                <>
-                  <a className="icon-btn" href={`/api/admin/backups/${encodeURIComponent(b.name)}/download`} download={b.name} aria-label={`${t('backup.action.download')}: ${b.name}`} title={t('backup.action.download')}><Download size={17} /></a>
-                  <IconButton icon={ShieldCheck} label={`${t('backup.action.verify')}: ${b.name}`} disabled={working === b.name} onClick={() => void verify(b)} />
-                  <IconButton icon={RotateCcw} label={`${t('backup.action.restore')}: ${b.name}`} disabled={!!pending} onClick={() => setRestore(b)} />
-                  <IconButton icon={Trash2} variant="danger" label={`${t('backup.action.delete')}: ${b.name}`} onClick={() => void remove(b)} />
-                </>
+                <RowActions actions={[
+                  { icon: Download, label: `${t('backup.action.download')}: ${b.name}`, onClick: () => { const a = document.createElement('a'); a.href = `/api/admin/backups/${encodeURIComponent(b.name)}/download`; a.download = b.name; a.click() } },
+                  { icon: ShieldCheck, label: `${t('backup.action.verify')}: ${b.name}`, disabled: working === b.name, onClick: () => void verify(b) },
+                  { icon: RotateCcw, label: `${t('backup.action.restore')}: ${b.name}`, disabled: !!pending, onClick: () => setRestore(b) },
+                  { icon: Trash2, danger: true, label: `${t('backup.action.delete')}: ${b.name}`, onClick: () => void remove(b) },
+                ]} />
               }
             />
           ))}
         </List>
       </Section>
 
-      <Section title={t('backup.settings.title')}>
+      <Section title={t('backup.settings.title')} className="max-md:order-3">
         <SettingsCard key={JSON.stringify([settings.passphrase_set, settings.encrypt])} s={settings} onSaved={(s) => { setData((d) => (d ? { ...d, settings: s } : d)); void load() }} />
       </Section>
 

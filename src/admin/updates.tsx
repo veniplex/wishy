@@ -183,7 +183,7 @@ const COMPOSE_PROXY = `  wishy:
     networks: [default, docker-api]
     depends_on: [docker-proxy]
   docker-proxy:                  # only allow the required calls, see docker-compose.yml
-    image: wollomatic/socket-proxy:1.10.0
+    image: wollomatic/socket-proxy:1.14.0
     user: "65534:999"            # 999 = GID of /var/run/docker.sock
     volumes: ["/var/run/docker.sock:/var/run/docker.sock:ro"]
     networks: [docker-api]
@@ -208,7 +208,7 @@ function DockerCard({ s }: { s: UpdateStatus }) {
       </div>
       <p className="text-sm text-muted">{t('update.docker.intro')}</p>
       {d.available ? (
-        <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-3 text-sm">
+        <dl className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-3 text-sm">
           <div><dt className="meta">{t('update.docker.api')}</dt><dd className="font-medium">{d.api_version ?? '–'}</dd></div>
           <div className="min-w-0"><dt className="meta">{t('update.docker.container')}</dt><dd className="font-medium break-all">{d.self?.id ?? '–'}</dd></div>
           <div><dt className="meta">{t('update.docker.compose')}</dt><dd className="font-medium">{d.compose ? `${d.compose.project}${d.compose.service ? ` / ${d.compose.service}` : ''}` : '–'}</dd></div>

@@ -15,7 +15,7 @@ export default {
   'status': 'Status',
   'open': 'Offen',
   'link': 'Link',
-  'linkPlaceholder': 'Link einfügen – Titel, Bild und Preis werden übernommen',
+  'linkPlaceholder': 'Link einfügen (optional)',
   'titlePlaceholder': 'z. B. Gusseiserne Teekanne',
   'forWhom': 'Für wen?',
   'price': 'Preis',

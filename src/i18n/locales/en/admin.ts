@@ -10,6 +10,7 @@ const en: Record<keyof typeof de, string> = {
   'nav.ai': 'AI',
   'nav.api': 'API',
   'nav.audit': 'Audit log',
+  'nav.claims': 'Reservations',
   'nav.backups': 'Backups',
   'nav.updates': 'Updates',
   'nav.system': 'System',
@@ -21,6 +22,8 @@ const en: Record<keyof typeof de, string> = {
   'soon.updates': 'Here you will see whether a new version is available and update Wishy.',
 
   'loading': 'Loading …',
+  'rowActions': 'Actions',
+  'unsaved': 'Unsaved changes',
   'saved': 'Saved',
   'save': 'Save',
   'envLocked': 'Set via the environment variable {name} – cannot be changed here.',

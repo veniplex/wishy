@@ -100,5 +100,7 @@ const en: Record<keyof typeof de, string> = {
   'detail.given': 'Given on',
   'detail.created': 'Created on',
   'detail.paymentMethod': 'Payment method',
+  'detail.notesMore': 'more',
+  'detail.notesLess': 'less',
 }
 export default en

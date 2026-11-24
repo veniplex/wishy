@@ -1,8 +1,10 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Navigate, useLocation } from 'react-router-dom'
 import { WifiOff } from 'lucide-react'
-import { ApiError, api, errMsg, getSpaceId, setSpaceId, setUnauthorizedHandler, type Me, type Providers, type SpaceInfo, type User } from './api'
+import { ApiError, api, errMsg, getSpaceId, setSpaceId, setUnauthorizedHandler, type Me, type Providers, type PublicView, type SpaceInfo, type User } from './api'
 import { setSession, signOut } from './offline/engine'
+import { registerServiceWorker } from './offline/sw-register'
+import { applyLinkKey, handOverPublicView, publicApi, publicToken, sharedUrl } from './guest'
 import { onReconnect } from './offline/sync'
 import { Button, EmptyState, Page, PageSkeleton } from './ui'
 import { setAppName, setServerLocale, setUserLocale, t } from './i18n'
@@ -56,6 +58,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [spaces, setSpaces] = useState<SpaceInfo[]>([])
   const [spaceId, setSpace] = useState<number | null>(getSpaceId())
   const [providers, setProviders] = useState<Providers | null>(null)
+  /** App name and default language from a public list's answer (the page works without /api/auth/providers) */
+  const [publicApp, setPublicApp] = useState<{ name: string; locale: string } | null>(null)
   const [sharedUnseen, setSharedUnseen] = useState(0)
   // Latest list for callers that switch right after applyMe (state is not updated yet)
   const spacesRef = useRef<SpaceInfo[]>([])
@@ -70,6 +74,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   userRef.current = user
   const applyMe = useCallback((me: Me) => {
     setSession(me)
+    registerServiceWorker({ force: true }) // a public list page installs nothing for guests (see sw-register.ts)
     // The session of this browser now belongs to someone else (signed in in another tab): start over with their data
     if (userRef.current && userRef.current.id !== me.user.id) location.reload()
     setUser(me.user)
@@ -82,6 +87,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [pick])
 
   const refresh = useCallback(async () => {
+    // A public list page (/w/:token) works with the paths a sign-in proxy lets through (/api/shared/*) and never waits for the rest:
+    // the list says whether this browser has a session; only then is /api/auth/me asked, and if that fails the visitor stays a guest.
+    const token = publicToken()
+    if (token) {
+      try {
+        await applyLinkKey(token) // a personal link (#g=<key>): take the key over before the list is asked for
+        const view = await publicApi<PublicView>('GET', sharedUrl(token), token)
+        handOverPublicView(token, view)
+        if (view.app) setPublicApp({ name: view.app.name, locale: view.app.default_locale })
+        if (!view.logged_in) { setUser(null); setStatus('anon'); return }
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 404) { setUser(null); setStatus('anon'); return } // the page shows "no longer shared"
+      }
+    }
     try {
       const [me, prov] = await Promise.all([
         api<Me | { setup: true }>('GET', '/api/auth/me').catch((e) => {
@@ -95,6 +114,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       else if ('setup' in me) { setUser(null); setStatus('setup') }
       else applyMe(me)
     } catch (e) {
+      if (token) { setStatus((s) => (s === 'ready' ? s : 'anon')); return } // a public page is never blocked by this
       setBootError(errMsg(e))
       setStatus((s) => (s === 'ready' ? s : 'error')) // a running app goes on with what it has
     }
@@ -114,11 +134,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => setUnauthorizedHandler(null)
   }, [])
 
-  const appName = providers?.app_name || 'Wishy'
+  const appName = providers?.app_name || publicApp?.name || 'Wishy'
   setAppName(appName) // before the texts are rendered (idempotent)
   useEffect(() => { document.title = appName }, [appName])
   // Locale: user setting (if the server provides it) and admin default
-  useEffect(() => { setServerLocale(providers?.default_locale) }, [providers?.default_locale])
+  useEffect(() => { setServerLocale(providers?.default_locale ?? publicApp?.locale) }, [providers?.default_locale, publicApp?.locale])
   useEffect(() => { setUserLocale(user?.locale) }, [user?.locale])
 
   const value = useMemo<Auth>(() => ({

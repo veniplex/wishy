@@ -74,5 +74,8 @@ const en: Record<keyof typeof de, string> = {
   'type.baby': 'New baby',
   'type.housewarming': 'Housewarming',
   'type.other': 'Other',
+  'plan.add': 'Add',
+  'view.legendBirthday': 'Birthday',
+  'view.legendOther': 'Occasion',
 }
 export default en

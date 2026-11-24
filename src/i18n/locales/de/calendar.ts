@@ -73,4 +73,7 @@ export default {
   'type.baby': 'Geburt',
   'type.housewarming': 'Einzug',
   'type.other': 'Sonstiges',
+  'plan.add': 'Hinzufügen',
+  'view.legendBirthday': 'Geburtstag',
+  'view.legendOther': 'Anlass',
 } as const

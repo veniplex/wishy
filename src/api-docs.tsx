@@ -37,7 +37,7 @@ function CodeBlock({ code, label }: { code: string; label: string }) {
         <span className="text-sm font-semibold">{label}</span>
         <Button size="sm" icon={copied ? Check : Copy} onClick={copy}>{copied ? tt('controls.ui.copied') : tt('controls.ui.copy')}</Button>
       </div>
-      <pre className="text-xs font-mono bg-hover border border-line rounded-xl p-3 overflow-x-auto whitespace-pre" tabIndex={0}>{code}</pre>
+      <pre className="text-xs font-mono bg-hover border border-line rounded-xl p-3 overflow-x-auto whitespace-pre max-sm:whitespace-pre-wrap max-sm:break-all" tabIndex={0}>{code}</pre>
     </div>
   )
 }
@@ -46,7 +46,7 @@ function CodeBlock({ code, label }: { code: string; label: string }) {
 function ShortcutGuide({ base }: { base: string }) {
   useT()
   const url = `${base}/api/v1/capture`
-  const Code = ({ children }: { children: string }) => <code className="font-mono text-[0.85em] bg-hover rounded px-1 py-0.5 break-all">{children}</code>
+  const Code = ({ children }: { children: string }) => <code className="font-mono text-[0.9em] bg-hover rounded px-1 py-0.5 break-all">{children}</code>
   const steps: { title: string; body: ReactNode }[] = [
     { title: t('apiDocs.shortcut.s1.title'), body: <>{t('apiDocs.shortcut.s1.text')} <strong>{t('apiDocs.shortcut.name')}</strong></> },
     { title: t('apiDocs.shortcut.s2.title'), body: <>{t('apiDocs.shortcut.s2.text')}</> },
@@ -71,7 +71,7 @@ function ShortcutGuide({ base }: { base: string }) {
       <ol className="space-y-4">
         {steps.map((s, i) => (
           <li key={i} className="flex gap-3">
-            <span className="grid place-items-center size-7 rounded-full bg-accent-soft text-accent font-semibold text-sm shrink-0" aria-hidden>{i + 1}</span>
+            <span className="grid place-items-center size-7 rounded-full bg-accent text-accent-ink font-semibold text-sm shrink-0" aria-hidden>{i + 1}</span>
             <div className="min-w-0 text-sm flex-1">
               <div className="font-semibold">{s.title}</div>
               <div className="text-muted mt-0.5 [&_strong]:text-ink [&_code]:text-ink">{s.body}</div>
@@ -118,7 +118,7 @@ export function ApiDocs() {
           <div className="text-sm space-y-1.5">
             <div className="font-semibold">{t('apiDocs.auth')}</div>
             <p className="text-muted">{t('apiDocs.authText')}</p>
-            <pre className="text-xs font-mono bg-hover border border-line rounded-xl p-3 overflow-x-auto" tabIndex={0}>{`Authorization: Bearer ${KEY}\n# ${t('apiDocs.or')}\nX-API-Key: ${KEY}`}</pre>
+            <pre className="text-xs font-mono bg-hover border border-line rounded-xl p-3 overflow-x-auto max-sm:whitespace-pre-wrap max-sm:break-all" tabIndex={0}>{`Authorization: Bearer ${KEY}\n# ${t('apiDocs.or')}\nX-API-Key: ${KEY}`}</pre>
             <p className="meta">{t('apiDocs.rateLimit')}</p>
           </div>
           <div><Button size="sm" icon={ExternalLink} href={`${base}/api/v1/openapi.json`}>{t('apiDocs.openapi')}</Button></div>
@@ -134,7 +134,7 @@ export function ApiDocs() {
               {endpoints.filter((e) => e.tag === tag).map((e) => (
                 <div key={e.method + e.path} className="px-4 py-2.5 flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
                   <Badge tone={METHOD_TONE[e.method] ?? 'neutral'} className="uppercase w-14 justify-center">{e.method}</Badge>
-                  <code className="font-mono text-sm break-all">{e.path}</code>
+                  <code className="font-mono text-sm break-all min-w-0">{e.path}</code>
                   <span className="text-sm text-muted basis-full sm:basis-auto sm:flex-1 min-w-0">{opText(e)}</span>
                 </div>
               ))}

@@ -26,10 +26,10 @@ export function PasswordSection() {
       <form onSubmit={submit}>
         <Card className="space-y-4">
           {!user?.has_password && <p className="text-sm text-muted">{t('account.password.googleOnly')}</p>}
-          {user?.has_password && <Field label={t('account.password.current')}><input className="input sm:max-w-sm" type="password" required autoComplete="current-password" value={current} onChange={(e) => setCurrent(e.target.value)} /></Field>}
-          <div className="grid sm:grid-cols-2 gap-4">
-            <Field label={t('account.password.new')} hint={t('account.password.newHint')}><input className="input" type="password" required minLength={8} autoComplete="new-password" value={next} onChange={(e) => setNext(e.target.value)} /></Field>
-            <Field label={t('account.password.repeat')}><input className={`input ${mismatch ? 'input-invalid' : ''}`} type="password" required autoComplete="new-password" value={again} onChange={(e) => setAgain(e.target.value)} /></Field>
+          {user?.has_password && <Field label={t('account.password.current')}><input className="input sm:max-w-sm" type="password" required autoComplete="current-password" enterKeyHint="next" value={current} onChange={(e) => setCurrent(e.target.value)} /></Field>}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Field label={t('account.password.new')} hint={t('account.password.newHint')}><input className="input" type="password" required minLength={8} autoComplete="new-password" enterKeyHint="next" value={next} onChange={(e) => setNext(e.target.value)} /></Field>
+            <Field label={t('account.password.repeat')}><input className={`input ${mismatch ? 'input-invalid' : ''}`} type="password" required autoComplete="new-password" enterKeyHint="done" value={again} onChange={(e) => setAgain(e.target.value)} /></Field>
           </div>
           <FormError>{error}</FormError>
           <Button variant="primary" type="submit" disabled={busy}>{user?.has_password ? t('account.password.change') : t('account.password.set')}</Button>

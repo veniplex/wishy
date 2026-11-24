@@ -5,6 +5,8 @@ import { OccasionTypeIcon } from '../components'
 import { occasionIconByName } from '../occasion-icons'
 import { IconGrid } from '../pickers'
 import { fmtIntl, monthNames, t, useT } from '../i18n'
+import { TypeListShell } from './type-list'
+import { isCoarse } from '../controls'
 import { Badge, Button, Card, Checkbox, Field, IconButton, List, Modal, Row, Section, Segmented, Select, Thumb, useConfirm } from '../ui'
 import type { Audience } from '../lib'
 
@@ -52,7 +54,7 @@ function TypeDialog({ type, onClose }: { type: OccasionTypeView | null; onClose:
         }
       >
         <Field label={t('settings.space.types.name')}>
-          <input className="input" required maxLength={60} placeholder={t('settings.space.types.namePlaceholder')} value={name} onChange={(e) => setName(e.target.value)} />
+          <input className="input" required autoComplete="off" enterKeyHint="done" autoCapitalize="sentences" maxLength={60} placeholder={t('settings.space.types.namePlaceholder')} value={name} onChange={(e) => setName(e.target.value)} />
         </Field>
         <Field label={t('settings.space.types.icon')} group>
           <IconGrid value={icon} onChange={setIcon} label={t('settings.space.types.icon')} />
@@ -140,42 +142,51 @@ export function OccasionTypesSection() {
 
   return (
     <Section title={t('settings.space.types.title')} action={canManage ? <Button size="sm" icon={Plus} onClick={() => setEdit('new')}>{t('settings.space.types.new')}</Button> : undefined}>
-      <Card className="space-y-3">
-        <p className="text-sm text-muted">{t('settings.space.types.sub')}</p>
-        {!canManage && <p className="text-sm text-muted">{t('settings.space.types.readOnly')}</p>}
-        <List bare>
-          {list.map((x, i) => (
-            <Row
-              key={x.id}
-              dense
-              dim={!!x.hidden}
-              lead={<Thumb size={32} tone="accent" icon={occasionIconByName(x.icon)} />}
-              title={x.label}
-              titleSuffix={<>
-                {x.builtin_key && <Badge icon={Lock}>{t('settings.space.types.default')}</Badge>}
-                {x.hidden ? <Badge tone="warn">{t('settings.space.types.hidden')}</Badge> : null}
-              </>}
-              meta={[
-                x.default_month_day ? fmtMonthDay(x.default_month_day) : null,
-                x.default_recurring ? t('settings.space.types.yearly') : null,
-                x.key === 'birthday' ? null : t(x.default_audience === 'all' ? 'settings.space.types.audience.all' : 'settings.space.types.audience.selected'),
-                t('settings.space.types.usage', { count: x.usage }),
-              ].filter(Boolean).join(' · ')}
-              actions={canManage && (
-                <>
-                  <IconButton size="sm" icon={ArrowUp} label={t('settings.space.types.up', { name: x.label })} disabled={i === 0} onClick={() => move(i, -1)} />
-                  <IconButton size="sm" icon={ArrowDown} label={t('settings.space.types.down', { name: x.label })} disabled={i === list.length - 1} onClick={() => move(i, 1)} />
-                  {x.hidden
-                    ? <IconButton size="sm" icon={Eye} label={t('settings.space.types.show', { name: x.label })} onClick={() => void call('POST', `/api/occasion-types/${x.id}/show`)} />
-                    : <IconButton size="sm" icon={EyeOff} label={t('settings.space.types.hide', { name: x.label })} disabled={visibleCount <= 1} onClick={() => void call('POST', `/api/occasion-types/${x.id}/hide`)} />}
-                  {!x.builtin_key && <IconButton size="sm" icon={Pencil} label={t('settings.space.types.edit', { name: x.label })} onClick={() => setEdit(x)} />}
-                  {!x.builtin_key && <IconButton size="sm" icon={Trash2} label={t('settings.space.types.remove', { name: x.label })} disabled={!x.hidden && visibleCount <= 1} onClick={() => void remove(x)} />}
-                </>
-              )}
-            />
-          ))}
-        </List>
-      </Card>
+      <TypeListShell canReorder={canManage} summary={t('settings.space.list.summary', { count: list.length }) + (list.length > visibleCount ? ' · ' + t('settings.space.types.hidden').toLowerCase() + ': ' + (list.length - visibleCount) : '')}>
+        {({ reorder, compact, head }) => (
+        <Card className="space-y-3">
+            {head}
+          <p className="text-sm text-muted">{t('settings.space.types.sub')}</p>
+          {!canManage && <p className="text-sm text-muted">{t('settings.space.types.readOnly')}</p>}
+          <List bare>
+            {list.map((x, i) => (
+              <Row
+                key={x.id}
+                dense
+                dim={!!x.hidden}
+                lead={<Thumb size={32} tone="accent" icon={occasionIconByName(x.icon)} />}
+                title={x.label}
+                titleSuffix={<>
+                  {x.builtin_key && <Badge icon={Lock}>{t('settings.space.types.default')}</Badge>}
+                  {x.hidden ? <Badge tone="warn">{t('settings.space.types.hidden')}</Badge> : null}
+                </>}
+                meta={[
+                  x.default_month_day ? fmtMonthDay(x.default_month_day) : null,
+                  x.default_recurring ? t('settings.space.types.yearly') : null,
+                  x.key === 'birthday' ? null : t(x.default_audience === 'all' ? 'settings.space.types.audience.all' : 'settings.space.types.audience.selected'),
+                  t('settings.space.types.usage', { count: x.usage }),
+                ].filter(Boolean).join(' · ')}
+                actions={canManage && (
+                  <>
+                    {(reorder || !compact) && <>
+                    <IconButton size="sm" icon={ArrowUp} label={t('settings.space.types.up', { name: x.label })} disabled={i === 0} onClick={() => move(i, -1)} />
+                    <IconButton size="sm" icon={ArrowDown} label={t('settings.space.types.down', { name: x.label })} disabled={i === list.length - 1} onClick={() => move(i, 1)} />
+                    </>}
+                    {(!reorder || !compact) && <>
+                    {x.hidden
+                      ? <IconButton size="sm" icon={Eye} label={t('settings.space.types.show', { name: x.label })} onClick={() => void call('POST', `/api/occasion-types/${x.id}/show`)} />
+                      : <IconButton size="sm" icon={EyeOff} label={t('settings.space.types.hide', { name: x.label })} disabled={visibleCount <= 1} onClick={() => void call('POST', `/api/occasion-types/${x.id}/hide`)} />}
+                    {!x.builtin_key && <IconButton size="sm" icon={Pencil} label={t('settings.space.types.edit', { name: x.label })} onClick={() => setEdit(x)} />}
+                    {!x.builtin_key && <IconButton size="sm" icon={Trash2} label={t('settings.space.types.remove', { name: x.label })} disabled={!x.hidden && visibleCount <= 1} onClick={() => void remove(x)} />}
+                    </>}
+                  </>
+                )}
+              />
+            ))}
+          </List>
+        </Card>
+        )}
+      </TypeListShell>
       {edit && <TypeDialog type={edit === 'new' ? null : edit} onClose={() => setEdit(null)} />}
       {inUse && <InUseDialog type={inUse} others={list.filter((o) => o.id !== inUse.id && !o.hidden)} onClose={() => setInUse(null)} />}
     </Section>

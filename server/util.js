@@ -76,8 +76,8 @@ export const setSecureHook = (fn) => {
 }
 export const isSecure = (req) => !!req.secure || !!secureHook?.(req)
 
-export function setCookie(res, req, name, value, { maxAge, path = '/' } = {}) {
-  let c = `${name}=${encodeURIComponent(value)}; HttpOnly; SameSite=Lax; Path=${path}`
+export function setCookie(res, req, name, value, { maxAge, path = '/', sameSite = 'Lax' } = {}) {
+  let c = `${name}=${encodeURIComponent(value)}; HttpOnly; SameSite=${sameSite}; Path=${path}`
   if (maxAge !== undefined) c += `; Max-Age=${maxAge}`
   if (isSecure(req)) c += '; Secure'
   res.append('Set-Cookie', c)

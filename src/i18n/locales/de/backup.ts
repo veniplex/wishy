@@ -51,6 +51,7 @@ export default {
   'delete.done': 'Backup gelöscht',
   'upload.title': 'Backup hochladen',
   'upload.drop': 'Backup-Datei hierher ziehen oder auswählen',
+  'upload.choose': 'Backup-Datei auswählen',
   'upload.hint': 'Endung .wbk oder .wbk.enc, höchstens {max} MB. Die Datei wird vor der Übernahme geprüft.',
   'upload.passphrase': 'Passphrase (nur bei verschlüsselten Dateien)',
   'upload.passphraseHint': 'Leer lassen, wenn die gespeicherte Passphrase gilt. Ohne passende Passphrase wird die Datei als „nicht geprüft“ übernommen.',

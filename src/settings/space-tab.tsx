@@ -46,9 +46,9 @@ export function SpaceTab() {
   return (
     <>
       <Section title={t('settings.space.budget.title')} action={saved ? <Badge tone="ok" icon={Check}>{t('common.saved')}</Badge> : undefined}>
-        <Card className="grid sm:grid-cols-2 gap-4">
+        <Card className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Field label={t('settings.space.budget.yearly')} hint={t('settings.space.budget.yearlyHint')}>
-            <input className="input" inputMode="decimal" value={budget} onChange={(e) => setBudget(e.target.value)} onBlur={() => save({ yearly_budget: parseNum(budget) })} />
+            <input className="input" inputMode="decimal" autoComplete="off" enterKeyHint="done" value={budget} onChange={(e) => setBudget(e.target.value)} onBlur={() => save({ yearly_budget: parseNum(budget) })} />
           </Field>
           <Field label={t('settings.space.budget.currency')}>
             <Select value={s.settings.currency} disabled={!s.permissions.manage_space_settings} onChange={(e) => save({ currency: e.target.value })}>
@@ -57,9 +57,9 @@ export function SpaceTab() {
           </Field>
         </Card>
       </Section>
+      <SpacePermissionsSection />
       <OccasionTypesSection />
       <RelationshipTypesSection />
-      <SpacePermissionsSection />
       <Section title={t('settings.space.backup.title', { space: space ? spaceLabel(space) : '' })}>
         <Card className="space-y-3">
           <p className="text-sm text-muted">

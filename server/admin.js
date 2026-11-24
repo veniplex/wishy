@@ -7,10 +7,13 @@ import {
 import { requireAdmin, createSession, destroyUserSessions, clearSessionCookie } from './session.js'
 import { hashPassword, createUser } from './auth.js'
 import { audit } from './audit.js'
+import { claimsRoutes } from './admin-claims.js'
+import { lastActivityByUser, userActivityRoutes } from './admin-activity.js'
 import { avatarUrl, removeUserAvatars } from './avatars.js'
 import { twoFactorStatus, resetTwoFactor } from './twofactor.js'
 import { normalizeTrustProxy, applyTrustProxy, trustProxyRaw } from './proxy.js'
 import { deleteSpaceData, removeMember } from './spaces.js'
+import { implicitReleases, wishIdsOfUserClaims } from './wishlists.js'
 import { bad, notFound, conflict, newToken, sha256, reqId, cleanEmail, cleanName, cleanPassword } from './util.js'
 
 const DAY = 86_400_000
@@ -30,6 +33,8 @@ const listRow = (u) => ({
   created_at: u.created_at,
   last_login_at: u.last_login_at,
   space_count: u.space_count ?? 0,
+  last_seen_at: u.last_seen_at ?? null,
+  last_ip: u.last_ip ?? null,
 })
 const userRow = (id) =>
   db
@@ -39,7 +44,9 @@ const userRow = (id) =>
 const otherActiveAdmins = (excludeId) =>
   db.prepare("SELECT COUNT(*) AS n FROM users WHERE role='admin' AND disabled=0 AND id!=?").get(excludeId).n
 
-function deleteUser(uid) {
+function deleteUser(req, uid) {
+  // The claims of this user and on this user's lists disappear with the cascade: collect them while the data still exists
+  const released = implicitReleases(req, 'user_deleted', wishIdsOfUserClaims(uid))
   tx(() => {
     for (const s of db.prepare('SELECT s.id, s.personal FROM space_members m JOIN spaces s ON s.id=m.space_id WHERE m.user_id=?').all(uid)) {
       if (s.personal) deleteSpaceData(s.id)
@@ -49,17 +56,21 @@ function deleteUser(uid) {
     removeUserAvatars(uid)
     db.prepare('DELETE FROM users WHERE id=?').run(uid)
   })
+  released()
 }
 
 export function adminRoutes(app) {
   const A = requireAdmin
+  claimsRoutes(app)
+  userActivityRoutes(app)
 
   app.get('/api/admin/users', A, (req, res) => {
+    const act = lastActivityByUser()
     res.json(
       db
         .prepare('SELECT u.*, (SELECT COUNT(*) FROM space_members m WHERE m.user_id=u.id) AS space_count FROM users u ORDER BY u.name COLLATE NOCASE')
         .all()
-        .map(listRow),
+        .map((u) => listRow({ ...u, ...(act.get(u.id) ?? {}) })),
     )
   })
 
@@ -130,7 +141,7 @@ export function adminRoutes(app) {
     const u = db.prepare('SELECT * FROM users WHERE id=?').get(id)
     if (!u) throw notFound('User not found', 'user_not_found')
     if (u.role === 'admin' && !u.disabled && otherActiveAdmins(id) === 0) throw bad('The last administrator cannot be deleted', 'last_admin')
-    deleteUser(id)
+    deleteUser(req, id)
     audit(req, 'admin.user.delete', { target: { type: 'user', id, label: u.email } })
     res.json({ ok: true })
   })
@@ -192,7 +203,7 @@ export function adminRoutes(app) {
       w.put('trust_proxy', normalizeTrustProxy(b.trust_proxy) || null)
       applyTrustProxy()
     }
-    for (const k of ['retention_audit_days', 'retention_ai_usage_days', 'retention_sessions_days']) {
+    for (const k of ['retention_audit_days', 'retention_ai_usage_days', 'retention_sessions_days', 'retention_ip_days']) {
       if (b[k] !== undefined) w.put(k, b[k] === null || b[k] === '' ? null : retentionVal(b[k], k))
     }
   }
@@ -229,6 +240,7 @@ export function adminRoutes(app) {
       retention_audit_days: getSys('retention_audit_days') ?? 365,
       retention_ai_usage_days: getSys('retention_ai_usage_days') ?? 730,
       retention_sessions_days: getSys('retention_sessions_days') ?? null,
+      retention_ip_days: getSys('retention_ip_days') ?? 90,
       env_locked: envLocked(),
     }
   }

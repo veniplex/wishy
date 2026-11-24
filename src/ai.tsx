@@ -6,6 +6,7 @@ import { useAuth } from './auth'
 import { parseNum, daysUntil } from './lib'
 import { Badge, Button, Checkbox, Field, FilePicker, FormError, Modal, Money, PillTabs, Select, useToast } from './ui'
 import { PersonSelect, WishlistSelect } from './pickers'
+import { isCoarse } from './controls'
 import { getLocale, t } from './i18n'
 
 // ───────────────────────────── Status ─────────────────────────────
@@ -105,7 +106,7 @@ export function LinkModePicker() {
         <span className="meta">{t('ai.linkMode.label')}</span>
         <PillTabs label={t('ai.linkMode.label')} value={mode} onChange={set} items={[{ value: 'builtin', label: t('ai.linkMode.builtin') }, { value: 'ai', label: <span className="inline-flex items-center gap-1"><Sparkles size={13} />{t('ai.linkMode.ai')}</span> }]} />
       </div>
-      <p className="meta">{mode === 'ai' ? t('ai.linkMode.aiHint') : t('ai.linkMode.builtinHint')}</p>
+      {mode === 'ai' && <p className="meta">{t('ai.linkMode.aiHint')}</p>}
       {fellBack && <p className="meta text-warn">{t('ai.linkMode.fallback')}</p>}
     </div>
   )
@@ -307,7 +308,7 @@ export function ImportDialog({ init, onClose, onDone }: { init?: ImportInit; onC
           <AiNotice feature={tab === 'text' ? 'text_import' : 'image_import'} />
           {tab === 'text' ? (
             <Field label={t('ai.import.text')} hint={t('ai.import.textHint')}>
-              <textarea className="input min-h-40" autoFocus placeholder={t('ai.import.textPlaceholder')} value={text} onChange={(e) => setText(e.target.value)} />
+              <textarea className="input min-h-48" rows={8} autoFocus={!isCoarse()} placeholder={t('ai.import.textPlaceholder')} value={text} onChange={(e) => setText(e.target.value)} />
             </Field>
           ) : (
             <div className="space-y-2">
@@ -337,8 +338,8 @@ export function ImportDialog({ init, onClose, onDone }: { init?: ImportInit; onC
                 <Checkbox checked={d.on} onChange={(v) => upd(d.key, { on: v })}><span className="font-semibold">{t('ai.import.take')}</span></Checkbox>
                 <input className="input" aria-label={t('ai.import.fieldTitle')} value={d.title} onChange={(e) => upd(d.key, { title: e.target.value })} />
                 <div className="grid grid-cols-2 gap-2">
-                  <input className="input" aria-label={t('ai.import.fieldPrice')} inputMode="decimal" placeholder={t('ai.import.fieldPrice')} value={d.price} onChange={(e) => upd(d.key, { price: e.target.value })} />
-                  <input className="input" aria-label={t('ai.import.fieldLink')} placeholder={t('ai.import.fieldLink')} value={d.url} onChange={(e) => upd(d.key, { url: e.target.value })} />
+                  <input className="input" aria-label={t('ai.import.fieldPrice')} inputMode="decimal" autoComplete="off" enterKeyHint="done" placeholder={t('ai.import.fieldPrice')} value={d.price} onChange={(e) => upd(d.key, { price: e.target.value })} />
+                  <input className="input" inputMode="url" autoCapitalize="none" autoCorrect="off" spellCheck={false} aria-label={t('ai.import.fieldLink')} placeholder={t('ai.import.fieldLink')} value={d.url} onChange={(e) => upd(d.key, { url: e.target.value })} />
                 </div>
                 <input className="input" aria-label={t('ai.import.fieldNotes')} placeholder={t('ai.import.fieldNotes')} value={d.notes} onChange={(e) => upd(d.key, { notes: e.target.value })} />
                 {target === 'ideas' && (
@@ -408,14 +409,14 @@ function SuggestDialog({ personId, personName, onClose }: { personId: number; pe
       onClose={onClose}
       footer={<><span className="flex-1" /><Button onClick={onClose}>{t('controls.ui.close')}</Button><Button variant="primary" icon={Sparkles} onClick={run} disabled={busy}>{busy ? t('ai.suggest.thinking') : list ? t('ai.suggest.again') : t('ai.suggest.get')}</Button></>}
     >
-      <div className="grid sm:grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 [&>*]:min-w-0">
         <Field label={t('ai.suggest.occasion')}>
           <Select value={occ} onChange={(e) => setOcc(Number(e.target.value))}>
             <option value={0}>{t('controls.picker.noOccasion')}</option>
             {occasions.map((o) => <option key={o.id} value={o.id}>{t('ai.suggest.occasionDays', { name: o.name, count: daysUntil(o.date, s.today) })}</option>)}
           </Select>
         </Field>
-        <Field label={t('ai.suggest.budget')}><input className="input" inputMode="decimal" value={budget} onChange={(e) => setBudget(e.target.value)} /></Field>
+        <Field label={t('ai.suggest.budget')}><input className="input" inputMode="decimal" autoComplete="off" enterKeyHint="done" value={budget} onChange={(e) => setBudget(e.target.value)} /></Field>
       </div>
       <p className="meta flex items-start gap-2"><AiBadge feature="suggestions" /><span>{t('ai.suggest.privacy', { name: personName })}</span></p>
       <FormError>{error}</FormError>

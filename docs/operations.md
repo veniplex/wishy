@@ -52,7 +52,7 @@ Chromium (link preview).
 | Variable | Meaning |
 | --- | --- |
 | `TZ` | time zone, e.g. `Europe/Berlin` (backup schedule) |
-| `BASE_URL` | public address, e.g. `https://wishy.example.com` |
+| `BASE_URL` | public address, e.g. `https://wishy.example.com`. Passkeys (sign-in without a password) require HTTPS and use its host name as relying party ID: changing the host name invalidates all passkeys (people sign in with their password and register them again) |
 | `TRUST_PROXY` | reverse proxy IN FRONT of the container: number of hops (`1`), `true` or subnets. Alternatively in Admin › General |
 | `UPDATE_REPO` / `UPDATE_TOKEN` | GitHub repository `owner/name` (default `veniplex/wishy`) / optional token (rate limit) |
 | `BACKUP_PASSPHRASE` | overrides the stored backup passphrase |
@@ -69,6 +69,48 @@ All variables with their defaults: [docker-compose.yml](../docker-compose.yml).
 `X-Forwarded-For`, passes through `X-Forwarded-Proto/-Host` of an outer proxy, and additionally tells the app what it
 saw itself. For the proxy setting (environment **or** UI), the app adds exactly this one hop. If no outer proxy is
 configured, it discards client headers and only uses the launcher's values – a forged `X-Forwarded-For` has no effect.
+
+**Proxy with its own sign-in (Pangolin, Authelia, Authentik, …):** the public list page `/w/<token>` is meant for people without an
+account, so these paths must be reachable through the proxy without its login (Admin › General › Diagnostics lists them):
+`/w/*`, `/api/shared/*`, `/api/images/*`, `/api/v1/*`, `/api/auth/google/callback`, `/healthz`, `/assets/*`. That is all the page needs:
+it loads the list from `/api/shared/<token>`, which also returns the app name and default language, and guests reserve and release
+through `/api/shared/<token>/wishes/<id>/reserve`. The page never waits for `/api/auth/me` (it is only asked when the list reports a
+Wishy session, and a failure leaves the visitor as a guest), registers no service worker and shows no "offline" notice when other paths
+are answered by the proxy. The sign-in link is a normal page load, so the proxy can show its own login first. `/icons/*`,
+`/manifest.webmanifest` and `/sw.js` are optional (tab icon, installable app, offline mode for signed-in users only); `/api/maintenance`
+is not needed either. **Installations that already allow the paths above do not have to change anything** (the list is unchanged).
+
+**Reserving without an account (guests):** every browser that opens a shared list generates a random guest key (128 bit) and keeps it in
+localStorage, per list. The server only learns it when it is needed: with the first reservation, or when the guest saves their
+**personal link**; merely opening the page (a link preview, a bot) creates nothing. A guest is stored per list with a short public
+**guest ID** (like `G-7F3KQ2`, not a secret), the name they gave, the SHA-256 of the key, first/last visit and, as for reservations,
+IP address and device. The key itself is never stored and never logged: it only travels in the `X-Guest-Key` header of calls under
+`/api/shared/*` (so the proxy bypass list is unchanged) and in the personal link `https://<host>/w/<token>#g=<key>`, where it sits in the
+URL fragment, which browsers never send to servers, proxies, access logs or the Referer header; the page removes it from the address bar
+right after reading it. With the personal link a guest manages their reservations later and on other devices (release, rename, merge
+the claims of two browsers, "forget on this device"); a guest who signs in later can move their reservations into the account. Whoever
+holds the link can act as that guest, so it is meant to be kept private; a guest who loses it can only be helped by an administrator
+(Admin › Reservations). When the list owner generates a new share link, the old link and the personal links built on it stop working; the
+browsers that hold a key keep recognising their reservations on the new link. Reservations made before 1.2.0 have no guest and are still
+identified by name. Owners can switch "Guests without an account may reserve" off per list (share dialog); existing guests can still see
+and release their reservations, new ones are asked to sign in. Limits: 30 guest reservations/releases/link saves per IP and minute, 100
+guest reservations and 300 guests per list. A guest's name is visible to other visitors of the list (never to its owner); name, guest ID,
+IP address and device are visible to administrators only (Admin › Reservations with a Guests view, audit log). Administrators can delete
+single, several or all reservations of a guest and the guest itself (audited as `admin.claim.release` / `admin.guest.delete`); the
+history of ended reservations is the audit log and follows its retention, it is not rewritten. The retention setting for IP addresses
+also clears the IP and device of guests.
+
+**What is logged (IP addresses, for your privacy notice):** the audit log (Admin › Audit log) records who did what and when,
+without contents or secrets. By default (level "Everything", unless an admin chose "Security" explicitly) it includes sign-ins and
+failed attempts, account and 2FA changes, administration, sharing, changes to lists, wishes, people, ideas and gifts, and every
+reservation and release of a wish. Each entry carries the **IP address and the browser/device string (user agent)** of the request;
+reservations store them as well (so Admin › Reservations can show who reserved a wish). Reading is not logged. Only administrators
+see IP addresses and user agents; they are not part of any export, state or API answer for normal users. Retention: entries are
+kept 365 days (`retention_audit_days`), but **IP addresses and user agents are blanked after 90 days** (`retention_ip_days`, Admin
+› General › Retention; `0` = as long as the entry); the daily cleanup does both. Sessions (including their last IP) are removed
+by the session retention. Behind a reverse proxy set `TRUST_PROXY`, otherwise every entry shows the proxy's address (Admin pages
+warn about this). An admin who owns wishlists does not see reservations on their own lists in these views unless they reveal them
+on purpose (the reveal is logged).
 
 **Healthcheck:** healthy when the app responds or an update/restore is currently running.
 **Stopping:** `docker compose stop` → SIGTERM → the launcher shuts the app down cleanly (the DB is closed).

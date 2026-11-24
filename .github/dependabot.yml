@@ -19,7 +19,7 @@ updates:
         dependency-type: development
         update-types: [minor, patch]
 
-  # Base image (FROM node:24-alpine@sha256:...): digest updates.
+  # Base image (FROM node:26-alpine@sha256:...): digest updates.
   # Node major upgrades are ignored on purpose; they are done manually.
   - package-ecosystem: docker
     directory: /

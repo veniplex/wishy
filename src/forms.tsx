@@ -13,7 +13,13 @@ import { Badge, Button, Checkbox, DatePicker, Field, FormError, List, Modal, Mon
 import { OccasionSelect, OccasionTypeSelect, PersonPicker, PersonSelect, defaultDate } from './pickers'
 import { EmojiPicker } from './emoji-picker'
 import { PersonPhotoField } from './person-photo'
+import { isCoarse } from './controls'
 import { GiftDetail, ItemDetail } from './detail-dialog'
+
+/** Responsive two/three column field grid: one column on phones, `min-w-0` children so long values cannot overflow. */
+export function FormGrid({ children, cols = 2, className = "" }: { children: ReactNode; cols?: 2 | 3; className?: string }) {
+  return <div className={`grid grid-cols-1 gap-3 ${cols === 3 ? "sm:grid-cols-3" : "sm:grid-cols-2"} [&>*]:min-w-0 ${className}`.trim()}>{children}</div>
+}
 
 function useForm<T extends object>(init: T) {
   const [f, setF] = useRealState(init)
@@ -239,7 +245,7 @@ export function PersonForm({ initial, focus }: { initial?: Partial<Person>; focu
     if (!(await confirm({ title: t('forms.person.unlinkTitle'), text: t('forms.person.unlinkText', { name: f.name || initial?.name || '' }), confirmLabel: t('forms.person.unlinkTitle'), destructive: true }))) return
     if (await call('POST', `/api/persons/${id}/unlink`)) close()
   }
-  const moreOpen = !!(f.emoji || initial?.photo_url || f.yearly_budget || f.archived || initial?.linked_user_id)
+  const moreOpen = !!(f.yearly_budget || f.archived || initial?.linked_user_id)
   return (
     <FormModal
       title={id ? t('forms.person.edit') : t('forms.person.new')}
@@ -248,11 +254,9 @@ export function PersonForm({ initial, focus }: { initial?: Partial<Person>; focu
       moreOpen={moreOpen}
       more={
         <>
-          <Field label={t('forms.person.photo')} group><PersonPhotoField person={{ ...initial, name: f.name || initial?.name, emoji: f.emoji }} id={id ?? null} /></Field>
-          <Field label={t('forms.person.emoji')} group hint={t('forms.person.emojiHint')}><EmojiPicker value={f.emoji} onChange={(e) => set('emoji', e)} label={t('forms.person.emoji')} /></Field>
           {!isMe && (
             <Field label={t('forms.person.yearlyBudget')} error={bad(f.yearly_budget) && t('forms.numErr')}>
-              <input className={`input ${bad(f.yearly_budget) ? 'input-invalid' : ''}`} inputMode="decimal" placeholder={t('forms.person.budgetPlaceholder')} value={f.yearly_budget} onChange={(e) => set('yearly_budget', e.target.value)} />
+              <input className={`input ${bad(f.yearly_budget) ? 'input-invalid' : ''}`} inputMode="decimal" autoComplete="off" enterKeyHint="done" placeholder={t('forms.person.budgetPlaceholder')} value={f.yearly_budget} onChange={(e) => set('yearly_budget', e.target.value)} />
             </Field>
           )}
           {id && id > 0 && !isMe && (linkedMember ? (
@@ -280,11 +284,13 @@ export function PersonForm({ initial, focus }: { initial?: Partial<Person>; focu
         </>
       }
     >
-      <Field label={t('forms.name')}><input className="input" required autoFocus={focus !== 'birthday'} value={f.name} onChange={(e) => set('name', e.target.value)} /></Field>
+      <Field label={t('forms.person.photo')} group><PersonPhotoField person={{ ...initial, name: f.name || initial?.name, emoji: f.emoji }} id={id ?? null} /></Field>
+      <Field label={t('forms.person.emoji')} group hint={t('forms.person.emojiHint')}><EmojiPicker value={f.emoji} onChange={(e) => set('emoji', e)} label={t('forms.person.emoji')} /></Field>
+      <Field label={t('forms.name')}><input className="input" required autoComplete="off" autoCapitalize="words" enterKeyHint="next" autoFocus={focus !== 'birthday'} value={f.name} onChange={(e) => set('name', e.target.value)} /></Field>
       <Field label={t('forms.person.birthday')} hint={t('forms.person.birthdayHint')}><DatePicker id="person-birthday" aria-label={t('forms.person.birthday')} value={f.birthday} max={s.today} onChange={(v) => set('birthday', v)} /></Field>
       {!isMe && !initial?.linked_user_id && (
         <Field label={t('forms.person.email')} hint={t('forms.person.emailHint')}>
-          <input className="input" type="email" autoComplete="off" placeholder={t('wishlists.share.emailPlaceholder')} value={f.email} onChange={(e) => set('email', e.target.value)} />
+          <input className="input" type="email" autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false} enterKeyHint="done" placeholder={t('wishlists.share.emailPlaceholder')} value={f.email} onChange={(e) => set('email', e.target.value)} />
         </Field>
       )}
       <Field label={t('forms.person.relationship')} hint={s.permissions.manage_persons ? t('forms.person.relationshipHint') : undefined}>
@@ -296,7 +302,7 @@ export function PersonForm({ initial, focus }: { initial?: Partial<Person>; focu
         />
       </Field>
       <Field label={t('forms.notes')}>
-        <textarea className="input min-h-24" placeholder={t('forms.person.notesPlaceholder')} value={f.notes} onChange={(e) => set('notes', e.target.value)} />
+        <textarea className="input min-h-28" placeholder={t('forms.person.notesPlaceholder')} value={f.notes} onChange={(e) => set('notes', e.target.value)} />
       </Field>
     </FormModal>
   )
@@ -362,9 +368,9 @@ export function OccasionForm({ initial }: { initial?: Partial<Occasion> }) {
             <Checkbox checked={f.recurring} onChange={(v) => set('recurring', v)}>{t('forms.occasion.recurring')}</Checkbox>
           )}
           <Field label={t('forms.budget')} error={bad(f.budget) && t('forms.numErr')}>
-            <input className={`input ${bad(f.budget) ? 'input-invalid' : ''}`} inputMode="decimal" placeholder={t('forms.occasion.budgetPlaceholder')} value={f.budget} onChange={(e) => set('budget', e.target.value)} />
+            <input className={`input ${bad(f.budget) ? 'input-invalid' : ''}`} inputMode="decimal" autoComplete="off" enterKeyHint="done" placeholder={t('forms.occasion.budgetPlaceholder')} value={f.budget} onChange={(e) => set('budget', e.target.value)} />
           </Field>
-          <Field label={t('forms.notes')}><textarea className="input" value={f.notes} onChange={(e) => set('notes', e.target.value)} /></Field>
+          <Field label={t('forms.notes')}><textarea className="input min-h-28" value={f.notes} onChange={(e) => set('notes', e.target.value)} /></Field>
         </>
       }
     >
@@ -464,7 +470,7 @@ export function ItemForm({ initial }: { initial?: Partial<Item> }) {
           <Field label={t('forms.item.fit')} group>
             <Segmented label={t('forms.item.fit')} value={f.priority} onChange={(v) => set('priority', v)} options={[1, 2, 3].map((n) => ({ value: n, label: '★'.repeat(n) }))} />
           </Field>
-          <Field label={t('forms.notes')}><textarea className="input" placeholder={t('forms.item.notesPlaceholder')} value={f.notes} onChange={(e) => { touch('notes'); set('notes', e.target.value) }} /></Field>
+          <Field label={t('forms.notes')}><textarea className="input min-h-28" placeholder={t('forms.item.notesPlaceholder')} value={f.notes} onChange={(e) => { touch('notes'); set('notes', e.target.value) }} /></Field>
           {id && (
             <Field label={t('forms.status')} group hint={t('forms.item.statusHint')}>
               <Segmented label={t('forms.status')} value={f.status} onChange={(v) => set('status', v)} options={[{ value: 'open' as Item['status'], label: t('forms.open') }, { value: 'done' as Item['status'], label: t('forms.item.done') }, { value: 'discarded' as Item['status'], label: t('forms.item.discarded') }]} />
@@ -481,8 +487,9 @@ export function ItemForm({ initial }: { initial?: Partial<Item> }) {
           <OccasionSelect label={t('forms.item.occasion')} occasions={personOccasions} value={f.occasion_id} onChange={(oid) => set('occasion_id', oid)} personIds={[f.person_id]} />
         </Field>
       )}
+      <Field label={t('forms.item.what')}><input className="input" required autoComplete="off" autoCapitalize="sentences" enterKeyHint="next" autoFocus={!!initial?.person_id && !isCoarse()} placeholder={t('forms.titlePlaceholder')} value={f.title} onChange={(e) => { touch('title'); set('title', e.target.value) }} /></Field>
       <Field label={t('forms.link')}>
-        <input className="input" type="text" inputMode="url" autoComplete="off" autoFocus={!!initial?.person_id} placeholder={t('forms.linkPlaceholder')} value={f.url} onChange={(e) => set('url', e.target.value)} {...link.bind} />
+        <input className="input" type="text" inputMode="url" autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false} enterKeyHint="done" placeholder={t('forms.linkPlaceholder')} value={f.url} onChange={(e) => set('url', e.target.value)} {...link.bind} />
         <LinkStatus loading={link.loading} error={link.error} ai={link.ai} />
         <PreviewCard
           image={f.image_url || null}
@@ -492,11 +499,10 @@ export function ItemForm({ initial }: { initial?: Partial<Item> }) {
           onRemoveImage={() => set('image_url', '')}
         />
       </Field>
-      <Field label={t('forms.item.what')}><input className="input" required placeholder={t('forms.titlePlaceholder')} value={f.title} onChange={(e) => { touch('title'); set('title', e.target.value) }} /></Field>
       <Checkbox checked={f.mentioned} onChange={(v) => set('mentioned', v)}>{t('forms.item.mentioned')}</Checkbox>
       <Field label={t('forms.priceApprox')} group error={bad(f.price) && t('forms.numErr')}>
         <div className="flex gap-2">
-          <input className={`input flex-1 ${bad(f.price) ? 'input-invalid' : ''}`} aria-label={t('forms.price')} inputMode="decimal" value={f.price} onChange={(e) => { touch('price'); set('price', e.target.value) }} />
+          <input className={`input flex-1 ${bad(f.price) ? 'input-invalid' : ''}`} aria-label={t('forms.price')} inputMode="decimal" autoComplete="off" enterKeyHint="done" value={f.price} onChange={(e) => { touch('price'); set('price', e.target.value) }} />
           <Select className="w-28 shrink-0" aria-label={t('forms.currency')} value={f.currency || appCur} onChange={(e) => { touch('currency'); set('currency', e.target.value) }}>
             {[...new Set([appCur, 'EUR', 'USD', 'GBP', 'CHF', f.currency].filter(Boolean))].map((c) => <option key={c} value={c}>{c}</option>)}
           </Select>
@@ -513,12 +519,12 @@ function StatusStepper({ value, onChange }: { value: string; onChange: (s: strin
   const returned = value === 'returned'
   return (
     <div className="space-y-2">
-      <ol className="flex gap-1.5" aria-label={t('forms.status')}>
+      <ol className="grid grid-cols-3 sm:grid-cols-6 gap-x-1.5 gap-y-1" aria-label={t('forms.status')}>
         {STATUS_STEPS.map((st, i) => (
-          <li key={st.id} className="flex-1 min-w-0">
-            <button type="button" onClick={() => onChange(st.id)} aria-current={i === idx && !returned ? 'step' : undefined} className="w-full flex flex-col gap-1.5 text-left cursor-pointer">
+          <li key={st.id} className="min-w-0">
+            <button type="button" onClick={() => onChange(st.id)} aria-current={i === idx && !returned ? 'step' : undefined} className="w-full flex flex-col gap-1.5 text-left cursor-pointer py-1.5 pointer-coarse:min-h-11">
               <span className={`h-2 rounded-full ${!returned && i <= idx ? 'bg-accent' : 'bg-track'}`} />
-              <span className={`text-[10px] sm:text-xs [overflow-wrap:anywhere] leading-tight ${i === idx && !returned ? 'font-semibold text-ink' : 'text-muted'}`}>{st.label}</span>
+              <span className={`text-xs break-words hyphens-auto leading-tight ${i === idx && !returned ? 'font-semibold text-ink' : 'text-muted'}`}>{st.label}</span>
             </button>
           </li>
         ))}
@@ -551,7 +557,7 @@ function PaymentSection({ gift, payers }: { gift: Gift; payers: Person[] }) {
         <Segmented label={t('forms.pay.status')} value={paid ? 'paid' : 'unpaid'} onChange={(v) => setPaid(v === 'paid')} options={[{ value: 'unpaid', label: t('forms.pay.unpaid') }, { value: 'paid', label: t('forms.pay.paid') }]} />
       </div>
       {paid && (
-        <div className="grid sm:grid-cols-2 gap-3">
+        <FormGrid>
           <Field label={t('forms.pay.who')}>
             <Select value={payer} onChange={(e) => setPayer({ payer_id: Number(e.target.value) })}>
               <option value={0}>{t('controls.picker.pleaseChoose')}</option>
@@ -563,9 +569,9 @@ function PaymentSection({ gift, payers }: { gift: Gift; payers: Person[] }) {
             <SuggestInput aria-label={t('forms.pay.method')} suggestions={PAYMENT_METHODS} placeholder={t('forms.pay.methodPlaceholder')} value={method} onChange={setMethod} />
           </Field>
           <Field label={t('forms.pay.amount')} hint={t('forms.pay.amountHint')}>
-            <input className="input" inputMode="decimal" placeholder={gift.price != null ? str(gift.price) : t('forms.moneyPlaceholder')} value={amount} onChange={(e) => setAmount(e.target.value)} />
+            <input className="input" inputMode="decimal" autoComplete="off" enterKeyHint="done" placeholder={gift.price != null ? str(gift.price) : t('forms.moneyPlaceholder')} value={amount} onChange={(e) => setAmount(e.target.value)} />
           </Field>
-        </div>
+        </FormGrid>
       )}
       <FormError>{error}</FormError>
       {dirty && <Button size="sm" variant="primary" onClick={save}>{t('forms.pay.save')}</Button>}
@@ -785,11 +791,11 @@ export function GiftForm({ initial }: { initial?: Partial<Gift> }) {
         <>
           <Field label={t('forms.gift.shop')}><input className="input" value={f.shop} onChange={(e) => set('shop', e.target.value)} /></Field>
           <Field label={t('forms.link')}>
-            <input className="input" type="text" inputMode="url" autoComplete="off" placeholder={t('forms.linkPlaceholder')} value={f.url} onChange={(e) => set('url', e.target.value)} {...link.bind} />
+            <input className="input" type="text" inputMode="url" autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false} placeholder={t('forms.linkPlaceholder')} value={f.url} onChange={(e) => set('url', e.target.value)} {...link.bind} />
             <LinkStatus loading={link.loading} error={link.error} ai={link.ai} />
             <PreviewCard image={f.image_url || null} title={link.pv?.title ?? null} shop={link.pv?.shop ?? null} price="" onRemoveImage={() => set('image_url', '')} />
           </Field>
-          <Field label={t('forms.notes')}><textarea className="input" placeholder={t('forms.gift.notesPlaceholder')} value={f.notes} onChange={(e) => set('notes', e.target.value)} /></Field>
+          <Field label={t('forms.notes')}><textarea className="input min-h-28" placeholder={t('forms.gift.notesPlaceholder')} value={f.notes} onChange={(e) => set('notes', e.target.value)} /></Field>
           {!f.occasion_id && <Field label={t('forms.date')}><DatePicker aria-label={t('forms.date')} value={f.date} onChange={(v) => set('date', v)} /></Field>}
         </>
       }
@@ -800,12 +806,12 @@ export function GiftForm({ initial }: { initial?: Partial<Gift> }) {
       <Field label={t('forms.gift.occasion')} hint={occHint || undefined}>
         <OccasionSelect label={t('forms.gift.occasion')} occasions={occasions} value={f.occasion_id} onChange={pickOccasion} personIds={f.recipient_ids} />
       </Field>
-      <Field label={t('forms.gift.what')}><input className="input" required autoFocus={!!initial?.recipient_ids?.length} value={f.title} onChange={(e) => { edited.current.add('title'); set('title', e.target.value) }} /></Field>
+      <Field label={t('forms.gift.what')}><input className="input" required autoComplete="off" autoCapitalize="sentences" enterKeyHint="next" autoFocus={!!initial?.recipient_ids?.length && !isCoarse()} value={f.title} onChange={(e) => { edited.current.add('title'); set('title', e.target.value) }} /></Field>
       <Field label={t('forms.status')} group>
         <StatusStepper value={id && live ? live.status : f.status} onChange={(v) => (id ? void call('POST', `/api/gifts/${id}/status`, { status: v }) : set('status', v))} />
       </Field>
       <Field label={t('forms.gift.totalPrice')} hint={curHint || undefined} error={bad(f.price) && t('forms.numErr')}>
-        <input className={`input ${bad(f.price) ? 'input-invalid' : ''}`} inputMode="decimal" placeholder={t('forms.moneyPlaceholder')} value={f.price} onChange={(e) => { edited.current.add('price'); setCurHint(''); set('price', e.target.value) }} />
+        <input className={`input ${bad(f.price) ? 'input-invalid' : ''}`} inputMode="decimal" autoComplete="off" enterKeyHint="done" placeholder={t('forms.moneyPlaceholder')} value={f.price} onChange={(e) => { edited.current.add('price'); setCurHint(''); set('price', e.target.value) }} />
       </Field>
 
       {!split ? (
@@ -823,7 +829,7 @@ export function GiftForm({ initial }: { initial?: Partial<Gift> }) {
               {givers.map((g) => (
                 <div key={g.person_id} className="flex items-center gap-2 text-sm">
                   <span className="flex-1 truncate">{person(g.person_id)?.name}</span>
-                  <input className={`input !w-28 text-right ${bad(g.amount) ? 'input-invalid' : ''}`} aria-label={t('forms.gift.shareOf', { name: person(g.person_id)?.name ?? '' })} inputMode="decimal" placeholder={price != null ? money(calc.get(g.person_id)) : t('forms.gift.share')} value={g.amount} onChange={(e) => setGiver(g.person_id, { amount: e.target.value })} />
+                  <input className={`input !w-28 text-right ${bad(g.amount) ? 'input-invalid' : ''}`} aria-label={t('forms.gift.shareOf', { name: person(g.person_id)?.name ?? '' })} inputMode="decimal" autoComplete="off" enterKeyHint="done" placeholder={price != null ? money(calc.get(g.person_id)) : t('forms.gift.share')} value={g.amount} onChange={(e) => setGiver(g.person_id, { amount: e.target.value })} />
                 </div>
               ))}
               <FormError>{givers.some((g) => bad(g.amount)) ? t('forms.gift.badShares') : null}</FormError>
@@ -835,13 +841,13 @@ export function GiftForm({ initial }: { initial?: Partial<Gift> }) {
       {id && live && statusIndex(live.status) >= 1 && live.status !== 'returned' && (
         <div className="space-y-3 rounded-2xl bg-hover p-4">
           <h3 className="h3">{t('forms.gift.shipping')}</h3>
-          <div className="grid sm:grid-cols-2 gap-3">
+          <FormGrid>
             <Field label={t('forms.gift.orderNumber')}><input className="input" value={f.order_number} onChange={(e) => set('order_number', e.target.value)} /></Field>
             <Field label={t('forms.gift.carrier')}><SuggestInput aria-label={t('forms.gift.carrier')} suggestions={['DHL', 'DPD', 'Hermes', 'UPS', 'GLS', 'Amazon Logistics']} placeholder={t('forms.gift.carrierPlaceholder')} value={f.carrier} onChange={(v) => set('carrier', v)} /></Field>
             <Field label={t('forms.gift.trackingNumber')}><input className="input" value={f.tracking_number} onChange={(e) => set('tracking_number', e.target.value)} /></Field>
             <Field label={t('forms.gift.expected')}><DatePicker aria-label={t('forms.gift.expected')} value={f.expected_at} onChange={(v) => set('expected_at', v)} /></Field>
-          </div>
-          <Field label={t('forms.gift.trackingLink')}><input className="input" inputMode="url" placeholder="https://…" value={f.tracking_url} onChange={(e) => set('tracking_url', e.target.value)} /></Field>
+          </FormGrid>
+          <Field label={t('forms.gift.trackingLink')}><input className="input" inputMode="url" autoCapitalize="none" autoCorrect="off" spellCheck={false} placeholder="https://…" value={f.tracking_url} onChange={(e) => set('tracking_url', e.target.value)} /></Field>
           <p className="meta">{t('forms.gift.saveHint')}</p>
         </div>
       )}
@@ -926,7 +932,7 @@ export function WishForm({ listId, initial, onClose, onSaved }: { listId: number
           <Field label={t('forms.wish.priority')} group>
             <Segmented label={t('forms.wish.priority')} value={f.priority} onChange={(v) => set('priority', v)} options={[1, 2, 3].map((n) => ({ value: n, label: '★'.repeat(n) }))} />
           </Field>
-          <Field label={t('forms.notes')}><textarea className="input" placeholder={t('forms.wish.notesPlaceholder')} value={f.notes} onChange={(e) => { touch('notes'); set('notes', e.target.value) }} /></Field>
+          <Field label={t('forms.notes')}><textarea className="input min-h-28" placeholder={t('forms.wish.notesPlaceholder')} value={f.notes} onChange={(e) => { touch('notes'); set('notes', e.target.value) }} /></Field>
           {id && (
             <Field label={t('forms.status')} group hint={t('forms.wish.statusHint')}>
               <Segmented label={t('forms.status')} value={f.status} onChange={(v) => set('status', v)} options={[{ value: 'open' as Wish['status'], label: t('forms.open') }, { value: 'received' as Wish['status'], label: t('forms.wish.received') }]} />
@@ -935,17 +941,17 @@ export function WishForm({ listId, initial, onClose, onSaved }: { listId: number
         </>
       }
     >
+      <Field label={t('forms.wish.what')} error={tried && !f.title.trim() && t('forms.wish.needTitle')}>
+        <input className="input" required autoComplete="off" autoCapitalize="sentences" enterKeyHint="next" autoFocus={!isCoarse()} placeholder={t('forms.titlePlaceholder')} value={f.title} onChange={(e) => { touch('title'); set('title', e.target.value) }} />
+      </Field>
       <Field label={t('forms.link')}>
-        <input className="input" type="text" inputMode="url" autoComplete="off" autoFocus placeholder={t('forms.linkPlaceholder')} value={f.url} onChange={(e) => set('url', e.target.value)} {...link.bind} />
+        <input className="input" type="text" inputMode="url" autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false} enterKeyHint="done" placeholder={t('forms.linkPlaceholder')} value={f.url} onChange={(e) => set('url', e.target.value)} {...link.bind} />
         <LinkStatus loading={link.loading} error={link.error} ai={link.ai} />
         <PreviewCard image={f.image_url || null} title={link.pv?.title ?? null} shop={link.pv?.shop ?? null} price={parseNum(f.price) != null ? money(parseNum(f.price), f.currency || appCur) : ''} onRemoveImage={() => set('image_url', '')} />
       </Field>
-      <Field label={t('forms.wish.what')} error={tried && !f.title.trim() && t('forms.wish.needTitle')}>
-        <input className="input" required placeholder={t('forms.titlePlaceholder')} value={f.title} onChange={(e) => { touch('title'); set('title', e.target.value) }} />
-      </Field>
       <Field label={t('forms.priceApprox')} group error={bad(f.price) && t('forms.numErr')}>
         <div className="flex gap-2">
-          <input className={`input flex-1 ${bad(f.price) ? 'input-invalid' : ''}`} aria-label={t('forms.price')} inputMode="decimal" value={f.price} onChange={(e) => { touch('price'); set('price', e.target.value) }} />
+          <input className={`input flex-1 ${bad(f.price) ? 'input-invalid' : ''}`} aria-label={t('forms.price')} inputMode="decimal" autoComplete="off" enterKeyHint="done" value={f.price} onChange={(e) => { touch('price'); set('price', e.target.value) }} />
           <Select className="w-28 shrink-0" aria-label={t('forms.currency')} value={f.currency || appCur} onChange={(e) => { touch('currency'); set('currency', e.target.value) }}>
             {[...new Set([appCur, 'EUR', 'USD', 'GBP', 'CHF', f.currency].filter(Boolean))].map((c) => <option key={c} value={c}>{c}</option>)}
           </Select>
@@ -987,7 +993,7 @@ export function ListForm({ initial, onClose, onSaved }: { initial?: MyWishlist; 
     <FormModal title={id ? t('forms.list.edit') : t('wishlists.new')} onClose={onClose} onSubmit={save} onDelete={id ? del : undefined}>
       <Field label={t('forms.list.title')}><input className="input" required autoFocus maxLength={120} placeholder={t('forms.list.titlePlaceholder')} value={f.title} onChange={(e) => set('title', e.target.value)} /></Field>
       <Field label={t('forms.list.eventDate')}><DatePicker aria-label={t('forms.list.eventDateAria')} value={f.event_date} onChange={(v) => set('event_date', v)} /></Field>
-      <Field label={t('forms.list.description')}><textarea className="input min-h-20" placeholder={t('forms.list.descriptionPlaceholder')} value={f.description} onChange={(e) => set('description', e.target.value)} /></Field>
+      <Field label={t('forms.list.description')}><textarea className="input min-h-28" placeholder={t('forms.list.descriptionPlaceholder')} value={f.description} onChange={(e) => set('description', e.target.value)} /></Field>
       {id && <Checkbox checked={f.archived} onChange={(v) => set('archived', v)}>{t('forms.list.archived')}</Checkbox>}
     </FormModal>
   )

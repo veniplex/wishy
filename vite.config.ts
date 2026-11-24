@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
+import { brotliCompressSync, constants as zc, gzipSync } from 'node:zlib'
 import { defineConfig, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
@@ -35,8 +36,32 @@ function serviceWorker(): Plugin {
   }
 }
 
+/** Precompresses text files of the build as <file>.br / <file>.gz (served by server/index.js); only when > 1 KB and smaller. */
+function precompress(): Plugin {
+  let outDir = ''
+  const walk = (dir: string): string[] => fs.readdirSync(dir, { withFileTypes: true }).flatMap((f) => (f.isDirectory() ? walk(path.join(dir, f.name)) : [path.join(dir, f.name)]))
+  return {
+    name: 'wishy-precompress',
+    apply: 'build',
+    enforce: 'post',
+    configResolved(config) { outDir = path.resolve(config.root, config.build.outDir) },
+    closeBundle() {
+      if (!fs.existsSync(outDir)) return
+      for (const file of walk(outDir)) {
+        if (!/\.(js|mjs|css|svg|json|html|txt|webmanifest)$/.test(file)) continue
+        const buf = fs.readFileSync(file)
+        if (buf.length <= 1024) continue
+        const br = brotliCompressSync(buf, { params: { [zc.BROTLI_PARAM_QUALITY]: 11, [zc.BROTLI_PARAM_SIZE_HINT]: buf.length } })
+        const gz = gzipSync(buf, { level: 9 })
+        if (br.length < buf.length) fs.writeFileSync(file + '.br', br)
+        if (gz.length < buf.length) fs.writeFileSync(file + '.gz', gz)
+      }
+    },
+  }
+}
+
 export default defineConfig({
-  plugins: [react(), tailwindcss(), serviceWorker()],
+  plugins: [react(), tailwindcss(), serviceWorker(), precompress()],
   server: {
     port: 5173,
     proxy: { '/api': 'http://localhost:3000', '/manifest.webmanifest': 'http://localhost:3000', '/healthz': 'http://localhost:3000' },

@@ -122,7 +122,15 @@ export function StackedBars({ title, desc, buckets, series, value, fmt, axisFmt,
   const maxV = Math.max(0, ...data.map((d) => d.total))
   const ticks = niceTicks(maxV)
   const top = ticks[ticks.length - 1] || 1
-  const left = Math.max(...ticks.map((v) => afmt(v).length)) * 6.6 + 14
+  // Equal labels (e.g. 0.002 0.002 0.001): fall back to as many decimals as the tick step needs
+  const tickLabels = ticks.map(afmt)
+  const labels = new Set(tickLabels).size === tickLabels.length ? tickLabels : (() => {
+    const step = ticks[1] - ticks[0]
+    let d = 0
+    while (d < 8 && Math.abs(step * 10 ** d - Math.round(step * 10 ** d)) > 1e-9) d++
+    return ticks.map((v) => fmtNumber(v, { minimumFractionDigits: d, maximumFractionDigits: d }))
+  })()
+  const left = Math.max(...labels.map((l) => l.length)) * 7.2 + 14
   const m = { t: 8, r: 8, b: 26, l: left }
   const iw = width - m.l - m.r
   const ih = height - m.t - m.b
@@ -141,10 +149,10 @@ export function StackedBars({ title, desc, buckets, series, value, fmt, axisFmt,
       <svg width={width} height={height} role="group" aria-label={title} className={`block select-none ${busy ? 'viz-busy' : ''}`} onPointerLeave={() => setHover(null)}>
         <title>{title}</title>
         <desc>{desc}</desc>
-        {ticks.map((v) => (
+        {ticks.map((v, ti) => (
           <g key={v}>
             <line x1={m.l} x2={width - m.r} y1={y(v)} y2={y(v)} stroke="var(--line)" strokeWidth={1} opacity={v === 0 ? 1 : 0.6} />
-            <text x={m.l - 8} y={y(v)} textAnchor="end" dominantBaseline="central" fontSize={11} fill="var(--muted)" className="num">{afmt(v)}</text>
+            <text x={m.l - 8} y={y(v)} textAnchor="end" dominantBaseline="central" fontSize={12} fill="var(--muted)" className="num">{labels[ti]}</text>
           </g>
         ))}
         {data.map((d, i) => {
@@ -159,7 +167,7 @@ export function StackedBars({ title, desc, buckets, series, value, fmt, axisFmt,
           const lastIdx = segs.length - 1
           return (
             <g key={d.b.id} className="viz-col" tabIndex={0} role="img" aria-label={`${d.b.long}: ${fmt(d.total)}`} onFocus={() => setHover(i)} onBlur={() => setHover(null)}>
-              {i % step === 0 && <text x={cx} y={height - 8} textAnchor="middle" fontSize={11} fill="var(--muted)">{d.b.label}</text>}
+              {i % step === 0 && <text x={cx} y={height - 8} textAnchor="middle" fontSize={12} fill="var(--muted)">{d.b.label}</text>}
               {segs.map((s, k) => {
                 const gap = k > 0 && s.h > 3 ? 2 : 0
                 const hh = Math.max(1, s.h - gap)
@@ -194,6 +202,8 @@ export function StackedBars({ title, desc, buckets, series, value, fmt, axisFmt,
     </div>
   )
 }
+
+export { ScrollFade } from './ui'
 
 /** Chart card: title, legend, chart, collapsible table */
 export function ChartCard({ title, sub, legend, children, table }: { title: string; sub?: string; legend?: ReactNode; children: ReactNode; table?: { columns: string[]; rows: { key: string; cells: ReactNode[] }[] } }) {

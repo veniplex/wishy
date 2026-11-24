@@ -1,15 +1,24 @@
 import { db, tx, insert, setGiftLinks, logGiftEvent, ACCESS_OK_SQL, syncSpaceAccessForList } from './db.js'
-import { baseUrl } from './config.js'
+import { baseUrl, getSys, defaultLocale } from './config.js'
 import { requireAuth } from './session.js'
 import { spaceCtx, memberPermissions } from './spaces.js'
 import { requirePermission } from './permissions.js'
-import { bad, notFound, forbidden, conflict, newToken, reqId, numId, cleanEmail } from './util.js'
+import { audit } from './audit.js'
+import { HttpError, bad, notFound, forbidden, conflict, newToken, reqId, numId, cleanEmail, makeHitCounter, ipKey } from './util.js'
 import { noteCreated, noteRef } from './ops-sink.js'
+import { createGuest, findGuest, guestName, guestSelf, mergeGuests, renameGuest, sentKey, sentMergeKey, takeOverGuest, touchGuest } from './guests.js'
+
+export { guestName }
 
 const iso = () => new Date().toISOString()
 const get = (sql, ...p) => db.prepare(sql).get(...p)
 const all = (sql, ...p) => db.prepare(sql).all(...p)
 const bump = (id) => db.prepare('UPDATE wishlists SET updated_at=? WHERE id=?').run(iso(), id)
+
+// ---------- Guest claims ----------
+const GUEST_CAP = 100 // guest claims per list (guests per list: GUEST_ROW_CAP in guests.js)
+const guestHits = makeHitCounter(30) // claims and releases of guests per IP and minute
+const cleanIp = (ip) => (ip ? String(ip).replace(/^::ffff:/, '').slice(0, 64) : null)
 
 // ---------- Helpers ----------
 export const counts = (id) =>
@@ -49,6 +58,7 @@ function myListView(req, l) {
     event_date: l.event_date,
     archived: !!l.archived,
     link_enabled: !!l.link_enabled,
+    guest_claims: !!l.guest_claims,
     token: l.share_token,
     url,
     full_url: baseUrl(req) + url,
@@ -97,7 +107,10 @@ export function wishesView(list, viewer) {
   )) {
     resv.set(r.wish_id, r)
   }
+  // Guests: the guest a claim belongs to (the one whose key the request carries) or, for claims of 1.0/1.1 without a guest, their name
   const guest = viewer.guestName ? String(viewer.guestName).trim().toLowerCase() : null
+  const guestOwns = (r) =>
+    !r.user_id && (r.guest_id ? viewer.guestId != null && viewer.guestId === r.guest_id : !!guest && r.guest_name?.toLowerCase() === guest)
   return rows
     .filter((w) => w.status !== 'removed')
     .map((w) => {
@@ -106,7 +119,7 @@ export function wishesView(list, viewer) {
         ...plainWish(w),
         reserved: !!r,
         reserved_by: r ? (r.user_id ? r.user_name : r.guest_name) : null,
-        reserved_by_me: !!r && ((viewer.userId != null && r.user_id === viewer.userId) || (!r.user_id && !!guest && r.guest_name?.toLowerCase() === guest)),
+        reserved_by_me: !!r && ((viewer.userId != null && r.user_id === viewer.userId) || guestOwns(r)),
       }
     })
 }
@@ -121,16 +134,35 @@ function detailView(req, list, { touch = false } = {}) {
   return body
 }
 
-function publicView(req, list) {
+/**
+ * What a guest tells us about themselves: the guest key (header only, never the URL) and, for claims of 1.0/1.1, the name. Signed-in
+ * people are never guests: for them a key is ignored (the list owner, in particular, learns nothing through it).
+ */
+function guestViewer(req, list) {
+  if (req.user) return {}
+  const g = findGuest(list, sentKey(req))
+  let name = ''
+  try { name = decodeURIComponent(String(req.get?.('x-guest-name') ?? '')) } catch { /* not decodable: ignored */ }
+  name ||= String(req.query?.guest_name ?? req.body?.guest_name ?? '') // cached clients of older versions
+  return { guest: g, guestId: g?.id ?? null, guestName: name.slice(0, 120) || null }
+}
+
+function publicView(req, list, viewer = {}) {
   const uid = req.user?.id ?? null
   const owner = get('SELECT id, name FROM users WHERE id=?', list.owner_user_id)
   const isOwner = uid === list.owner_user_id
-  const guestName = req.query?.guest_name ? String(req.query.guest_name) : req.body?.guest_name
-  let wishes = wishesView(list, { userId: uid, guestName })
+  const gv = guestViewer(req, list)
+  if (gv.guest) touchGuest(req, gv.guest)
+  let wishes = wishesView(list, { userId: uid, ...gv, ...viewer })
   if (isOwner) wishes = wishes.filter((w) => w.status !== 'removed')
   return {
     wishlist: { id: list.id, title: list.title, description: list.description, event_date: list.event_date },
     owner: { id: owner.id, name: owner.name },
+    // Everything the public page needs besides the list, so it works when only the shared paths pass a sign-in proxy
+    app: { name: getSys('app_name') || 'Wishy', default_locale: defaultLocale() },
+    guest_claims: !!list.guest_claims,
+    // The guest this browser is (code, name, number of claims); null = not known to the server (yet). Absent for signed-in people.
+    ...(uid == null ? { guest: guestSelf(gv.guest) } : {}),
     is_owner: isOwner,
     logged_in: uid != null,
     following: uid != null && !!get('SELECT 1 FROM wishlist_access WHERE wishlist_id=? AND user_id=?', list.id, uid),
@@ -249,25 +281,192 @@ export const linkedWishlists = (ownerId, viewerId) =>
 export const hasAccessToOwner = (ownerId, viewerId) => visibleListsOf(ownerId, viewerId).length > 0
 
 // ---------- Reservation resolution ----------
-function resolveWish(req, wishId, body) {
+/**
+ * The wish a claim is about and how the caller reaches it: with the list's share token (`tokenIn`, or the token of an older client in
+ * the body/query) or as a user with access. Wrong, switched-off or archived tokens are one and the same 404.
+ */
+function resolveWish(req, wishId, body, tokenIn) {
   const w = get('SELECT * FROM wishes WHERE id=?', reqId(wishId, 'Wish not found', 'wish_not_found'))
-  if (!w) throw notFound('Wish not found', 'wish_not_found')
-  const list = loadList(w.wishlist_id)
-  const user = req.user
-  if (user && user.id === list.owner_user_id) throw forbidden('You cannot reserve your own wishes', 'own_wish_reserve')
-  const token = body.token ?? req.query?.token
+  const token = tokenIn ?? body.token ?? req.query?.token
+  let list = null
   let mode
   if (token) {
-    if (String(token) !== list.share_token || !list.link_enabled || list.archived) throw notFound('This wishlist is no longer shared', 'list_not_shared')
+    list = listByToken(token)
+    if (!w || w.wishlist_id !== list.id) throw notFound('This wishlist is no longer shared', 'list_not_shared')
     mode = 'token'
   } else {
-    if (!user || !viaFor(list, user.id)) throw notFound('Wish not found', 'wish_not_found')
+    if (!w) throw notFound('Wish not found', 'wish_not_found')
+    list = loadList(w.wishlist_id)
+    if (!req.user || !viaFor(list, req.user.id)) throw notFound('Wish not found', 'wish_not_found')
     mode = 'access'
   }
+  const user = req.user
+  if (user && user.id === list.owner_user_id) throw forbidden('You cannot reserve your own wishes', 'own_wish_reserve')
   if (w.status === 'removed') throw notFound('Wish not found', 'wish_not_found')
   return { wish: w, list, mode, user }
 }
-const respond = (req, r) => (r.mode === 'token' ? publicView(req, r.list) : detailView(req, r.list))
+const respond = (req, res, r) => {
+  res.setHeader('Cache-Control', 'no-store')
+  return r.mode === 'token' ? publicView(req, r.list) : detailView(req, r.list)
+}
+
+/** Guests (no account) claim and release at a limited pace per IP address */
+function guestPace(req, res) {
+  const ip = ipKey(req.ip)
+  if (!guestHits.hit(ip)) return
+  res.setHeader('Retry-After', String(guestHits.retryAfter(ip)))
+  throw new HttpError(429, 'Too many requests. Please wait a moment.', 'too_many_requests')
+}
+
+/**
+ * Audit entry of a claim or release. Explicit (marks the request as audited, written at every log level); the claimer's IP and
+ * user agent are stored on the reservation itself.
+ */
+function auditClaim(req, action, { wish, list, resv, guest, viaLink }) {
+  audit(req, action, {
+    target: { type: 'wish', id: wish.id, label: wish.title },
+    ...(guest ? { label: resv.guest_name } : {}),
+    details: {
+      wishlist_id: list.id,
+      wishlist_title: list.title,
+      owner_user_id: list.owner_user_id,
+      ...(guest ? { guest_name: resv.guest_name } : {}),
+      ...(guest && resv.guest_id ? { guest_id: resv.guest_id, guest_code: resv.guest_code } : {}),
+      reservation_id: resv.id,
+      via_link: viaLink,
+    },
+  })
+}
+
+/**
+ * Claims that disappear because the owner removes the wish or the list. Call before deleting; the returned function writes the entries
+ * afterwards. Logged with the owner as the actor and without marking the request as audited (the delete itself is logged as usual).
+ */
+export function implicitReleases(req, reason, wishIds) {
+  if (!wishIds.length) return () => {}
+  const rows = all(
+    `SELECT r.id, r.wish_id, r.user_id, r.guest_name, r.guest_id, g.code AS guest_code, w.title, l.id AS list_id, l.title AS list_title, l.owner_user_id
+     FROM reservations r LEFT JOIN wishlist_guests g ON g.id=r.guest_id JOIN wishes w ON w.id=r.wish_id JOIN wishlists l ON l.id=w.wishlist_id WHERE r.wish_id IN (${wishIds.map(() => '?').join(',')})`,
+    ...wishIds,
+  )
+  return () => {
+    for (const r of rows) {
+      audit({ userId: req.user.id, via: 'session', ip: req.ip, userAgent: req.headers?.['user-agent'] }, 'wish.unreserve', {
+        target: { type: 'wish', id: r.wish_id, label: r.title },
+        details: {
+          wishlist_id: r.list_id,
+          wishlist_title: r.list_title,
+          owner_user_id: r.owner_user_id,
+          ...(r.user_id ? { reserved_by_user_id: r.user_id } : { guest_name: r.guest_name, ...(r.guest_id ? { guest_id: r.guest_id, guest_code: r.guest_code } : {}) }),
+          reservation_id: r.id,
+          via_link: !r.user_id,
+          reason,
+        },
+      })
+    }
+  }
+}
+
+/** Ids of the wishes whose claims disappear when a user is deleted: claims the user holds and claims on the user's own lists. */
+export const wishIdsOfUserClaims = (userId) =>
+  all(
+    'SELECT DISTINCT r.wish_id AS id FROM reservations r JOIN wishes w ON w.id=r.wish_id JOIN wishlists l ON l.id=w.wishlist_id WHERE r.user_id=? OR l.owner_user_id=?',
+    userId,
+    userId,
+  ).map((x) => x.id)
+
+const safeDecode = (v) => {
+  try {
+    return decodeURIComponent(String(v))
+  } catch {
+    return ''
+  }
+}
+/** POST of both reserve routes. `tokenIn` is set on /api/shared/:token/..., where guests are identified by their key; the old route knows guests by name only (1.0/1.1 clients). */
+function claim(req, res, wishId, tokenIn) {
+  const body = req.body || {}
+  const r = resolveWish(req, wishId, body, tokenIn)
+  const { wish, list, user } = r
+  if (!user) {
+    guestPace(req, res)
+    if (!list.guest_claims) throw forbidden('Guests cannot reserve on this list. Please sign in.', 'guest_claims_disabled')
+  }
+  if (wish.status !== 'open') throw bad('This wish is no longer available', 'wish_unavailable')
+  if (body.plan && !user) throw bad('You must be signed in to plan it', 'login_required_plan')
+  // A guest on the public page is identified by the key of their browser; the guest row is created with the first claim (the name is
+  // asked for then, a known guest keeps their name: renaming is a separate act that applies to all their claims)
+  let key = null
+  let known = null
+  if (!user && tokenIn) {
+    key = sentKey(req)
+    if (!key) throw bad('Your browser did not send a guest key. Please reload the page.', 'guest_key_required')
+    known = findGuest(list, key)
+  }
+  const name = user ? null : known ? known.name : guestName(body.guest_name)
+  let resv
+  tx(() => {
+    if (get('SELECT 1 FROM reservations WHERE wish_id=?', wish.id)) throw conflict('This wish is already reserved', 'wish_reserved')
+    if (
+      !user &&
+      get('SELECT COUNT(*) AS n FROM reservations WHERE user_id IS NULL AND wish_id IN (SELECT id FROM wishes WHERE wishlist_id=?)', list.id).n >= GUEST_CAP
+    ) {
+      throw conflict('Too many reservations by guests on this list. Please sign in.', 'guest_limit')
+    }
+    let giftId = null
+    if (body.plan) {
+      const ctx = spaceCtx(req)
+      const owner = get('SELECT id FROM persons WHERE space_id=? AND linked_user_id=? LIMIT 1', ctx.spaceId, list.owner_user_id)
+      const me = get('SELECT id FROM persons WHERE space_id=? AND linked_user_id=? LIMIT 1', ctx.spaceId, user.id)
+      giftId = insert(
+        'gifts',
+        { title: wish.title, url: wish.url, price: wish.price, image_url: wish.image_url, status: 'planned', payer_id: me?.id, wish_id: wish.id },
+        ctx.spaceId,
+      )
+      logGiftEvent(giftId, user.id, 'created', { title: wish.title })
+      setGiftLinks(giftId, { recipient_ids: owner ? [owner.id] : [], givers: me ? [{ person_id: me.id }] : [] })
+    }
+    const guestRow = key ? known ?? createGuest(req, list, key, name) : null
+    const ua = req.headers?.['user-agent']
+    const id = Number(
+      db
+        .prepare('INSERT INTO reservations (wish_id, user_id, guest_name, gift_id, guest_id, ip, user_agent) VALUES (?,?,?,?,?,?,?)')
+        .run(wish.id, user ? user.id : null, name, giftId, guestRow?.id ?? null, cleanIp(req.ip), ua ? String(ua).slice(0, 400) : null).lastInsertRowid,
+    )
+    resv = { id, guest_name: name, guest_id: guestRow?.id ?? null, guest_code: guestRow?.code ?? null }
+  })
+  auditClaim(req, 'wish.reserve', { wish, list, resv, guest: !user, viaLink: r.mode === 'token' })
+  res.json(respond(req, res, r))
+}
+
+/** DELETE of both reserve routes */
+function release(req, res, wishId, tokenIn) {
+  const body = req.body || {}
+  const r = resolveWish(req, wishId, body, tokenIn)
+  if (!r.user) guestPace(req, res)
+  const resv = get('SELECT r.*, g.code AS guest_code FROM reservations r LEFT JOIN wishlist_guests g ON g.id=r.guest_id WHERE r.wish_id=?', r.wish.id)
+  if (resv) {
+    let allowed = false
+    if (r.user && resv.user_id === r.user.id) allowed = true
+    else if (!r.user && !resv.user_id && resv.guest_name) {
+      if (resv.guest_id) {
+        // The claim belongs to a guest: only the one whose key this is (a name never decides)
+        const g = r.mode === 'token' ? findGuest(r.list, sentKey(req)) : null
+        allowed = !!g && g.id === resv.guest_id
+      } else {
+        // A claim of 1.0/1.1 has no guest: the name decides, as before
+        const g = String(req.get('x-guest-name') ? safeDecode(req.get('x-guest-name')) : (body.guest_name ?? req.query?.guest_name ?? '')).trim().toLowerCase()
+        allowed = !!g && g === resv.guest_name.toLowerCase()
+      }
+    }
+    if (!allowed) throw forbidden('Only the person who reserved it can cancel the reservation', 'reservation_not_yours')
+    tx(() => {
+      db.prepare('DELETE FROM reservations WHERE id=?').run(resv.id)
+      if (resv.gift_id) db.prepare("DELETE FROM gifts WHERE id=? AND status='planned'").run(resv.gift_id)
+    })
+    auditClaim(req, 'wish.unreserve', { wish: r.wish, list: r.list, resv, guest: !r.user, viaLink: r.mode === 'token' })
+  }
+  res.json(respond(req, res, r))
+}
 
 // ---------- Routes ----------
 export function wishlistRoutes(app) {
@@ -316,10 +515,12 @@ export function wishlistRoutes(app) {
 
   app.delete('/api/wishlists/:id', requireAuth, (req, res) => {
     const l = ownedList(req, req.params.id)
+    const released = implicitReleases(req, 'wishlist_deleted', all('SELECT id FROM wishes WHERE wishlist_id=?', l.id).map((w) => w.id))
     tx(() => {
       db.prepare('UPDATE gifts SET wish_id=NULL WHERE wish_id IN (SELECT id FROM wishes WHERE wishlist_id=?)').run(l.id)
       db.prepare('DELETE FROM wishlists WHERE id=?').run(l.id)
     })
+    released()
     res.json({ ok: true })
   })
 
@@ -352,10 +553,12 @@ export function wishlistRoutes(app) {
   app.delete('/api/wishes/:id', requireAuth, (req, res) => {
     const w = ownedWish(req, req.params.id)
     noteRef(w.wishlist_id)
+    const released = implicitReleases(req, 'wish_deleted', [w.id])
     tx(() => {
       db.prepare('DELETE FROM wishes WHERE id=?').run(w.id)
       bump(w.wishlist_id)
     })
+    released()
     res.json(detailView(req, loadList(w.wishlist_id)))
   })
   app.post('/api/wishlists/:id/reorder', requireAuth, (req, res) => {
@@ -379,6 +582,7 @@ export function wishlistRoutes(app) {
     const b = req.body || {}
     tx(() => {
       if (b.link_enabled !== undefined) db.prepare('UPDATE wishlists SET link_enabled=? WHERE id=?').run(b.link_enabled ? 1 : 0, l.id)
+      if (b.guest_claims !== undefined) db.prepare('UPDATE wishlists SET guest_claims=? WHERE id=?').run(b.guest_claims ? 1 : 0, l.id)
       if (b.regenerate) db.prepare('UPDATE wishlists SET share_token=? WHERE id=?').run(newToken(), l.id)
       // Without a valid link, link followers lose access; direct shares stay
       const now = loadList(l.id)
@@ -449,7 +653,73 @@ export function wishlistRoutes(app) {
   })
 
   // ---- Public link ----
-  app.get('/api/shared/:token', (req, res) => res.json(publicView(req, listByToken(req.params.token))))
+  app.get('/api/shared/:token', (req, res) => {
+    const view = publicView(req, listByToken(req.params.token))
+    res.setHeader('Cache-Control', 'no-store') // depends on the guest's secret and on the session
+    res.json(view)
+  })
+
+  // ---- Guest identity (everything under /api/shared/:token/, the key only in the X-Guest-Key header) ----
+  // Signed-in people are not guests: these routes answer them all the same, whatever key they send (the owner learns nothing).
+  const guestList = (req) => {
+    const l = listByToken(req.params.token)
+    if (req.user) throw forbidden('This is only for guests', 'guest_not_available')
+    return l
+  }
+  const guestOut = (req, res, list) => {
+    res.setHeader('Cache-Control', 'no-store')
+    res.json(publicView(req, list))
+  }
+  // The browser saves its personal link: the guest is created now (a plain visit never creates one)
+  app.post('/api/shared/:token/guest', (req, res) => {
+    const list = guestList(req)
+    guestPace(req, res)
+    const key = sentKey(req)
+    if (!key) throw bad('Your browser did not send a guest key. Please reload the page.', 'guest_key_required')
+    if (!findGuest(list, key)) {
+      if (!list.guest_claims) throw forbidden('Guests cannot reserve on this list. Please sign in.', 'guest_claims_disabled')
+      createGuest(req, list, key, req.body?.guest_name)
+    }
+    guestOut(req, res, list)
+  })
+  app.put('/api/shared/:token/guest', (req, res) => {
+    const list = guestList(req)
+    guestPace(req, res)
+    const g = findGuest(list, sentKey(req))
+    if (!g) throw notFound('Guest not found', 'guest_not_found')
+    renameGuest(req, list, g, req.body?.guest_name)
+    guestOut(req, res, list)
+  })
+  // Two keys prove two guests of this list are the same person: the claims of the second move to the first
+  app.post('/api/shared/:token/guest/merge', (req, res) => {
+    const list = guestList(req)
+    guestPace(req, res)
+    const into = findGuest(list, sentKey(req))
+    const from = findGuest(list, sentMergeKey(req))
+    if (!into || !from) throw notFound('Guest not found', 'guest_not_found')
+    mergeGuests(req, list, into, from)
+    guestOut(req, res, list)
+  })
+  // A signed-in user takes over the claims they made as a guest (the key proves it)
+  const takeoverList = (req) => {
+    const l = listByToken(req.params.token)
+    if (l.owner_user_id === req.user.id) throw forbidden('This is only for guests', 'guest_not_available')
+    return l
+  }
+  app.get('/api/shared/:token/guest/takeover', requireAuth, (req, res) => {
+    const list = takeoverList(req)
+    const g = findGuest(list, sentKey(req))
+    res.setHeader('Cache-Control', 'no-store')
+    res.json({ claims: g ? guestSelf(g).claims : 0, name: g ? g.name : null })
+  })
+  app.post('/api/shared/:token/guest/takeover', requireAuth, (req, res) => {
+    const list = takeoverList(req)
+    guestPace(req, res)
+    const g = findGuest(list, sentKey(req))
+    if (!g) throw notFound('Guest not found', 'guest_not_found')
+    takeOverGuest(req, list, g)
+    guestOut(req, res, list)
+  })
 
   app.post('/api/shared/:token/follow', requireAuth, (req, res) => {
     const l = listByToken(req.params.token)
@@ -464,53 +734,10 @@ export function wishlistRoutes(app) {
   })
 
   // ---- Reservations ----
-  app.post('/api/wishes/:id/reserve', (req, res) => {
-    const body = req.body || {}
-    const r = resolveWish(req, req.params.id, body)
-    const { wish, list, user } = r
-    if (wish.status !== 'open') throw bad('This wish is no longer available', 'wish_unavailable')
-    const guest = String(body.guest_name ?? '').trim().slice(0, 60)
-    if (!user && !guest) throw bad('Please enter your name', 'guest_name_required')
-    if (body.plan && !user) throw bad('You must be signed in to plan it', 'login_required_plan')
-    tx(() => {
-      if (get('SELECT 1 FROM reservations WHERE wish_id=?', wish.id)) throw conflict('This wish is already reserved', 'wish_reserved')
-      let giftId = null
-      if (body.plan) {
-        const ctx = spaceCtx(req)
-        const owner = get('SELECT id FROM persons WHERE space_id=? AND linked_user_id=? LIMIT 1', ctx.spaceId, list.owner_user_id)
-        const me = get('SELECT id FROM persons WHERE space_id=? AND linked_user_id=? LIMIT 1', ctx.spaceId, user.id)
-        giftId = insert(
-          'gifts',
-          { title: wish.title, url: wish.url, price: wish.price, image_url: wish.image_url, status: 'planned', payer_id: me?.id, wish_id: wish.id },
-          ctx.spaceId,
-        )
-        logGiftEvent(giftId, user.id, 'created', { title: wish.title })
-        setGiftLinks(giftId, { recipient_ids: owner ? [owner.id] : [], givers: me ? [{ person_id: me.id }] : [] })
-      }
-      db.prepare('INSERT INTO reservations (wish_id, user_id, guest_name, gift_id) VALUES (?,?,?,?)').run(
-        wish.id, user ? user.id : null, user ? null : guest, giftId,
-      )
-    })
-    res.json(respond(req, r))
-  })
-
-  app.delete('/api/wishes/:id/reserve', (req, res) => {
-    const body = req.body || {}
-    const r = resolveWish(req, req.params.id, body)
-    const resv = get('SELECT * FROM reservations WHERE wish_id=?', r.wish.id)
-    if (resv) {
-      let allowed = false
-      if (r.user && resv.user_id === r.user.id) allowed = true
-      else if (!r.user && !resv.user_id && resv.guest_name) {
-        const g = String(body.guest_name ?? req.query?.guest_name ?? '').trim().toLowerCase()
-        allowed = !!g && g === resv.guest_name.toLowerCase()
-      }
-      if (!allowed) throw forbidden('Only the person who reserved it can cancel the reservation', 'reservation_not_yours')
-      tx(() => {
-        db.prepare('DELETE FROM reservations WHERE id=?').run(resv.id)
-        if (resv.gift_id) db.prepare("DELETE FROM gifts WHERE id=? AND status='planned'").run(resv.gift_id)
-      })
-    }
-    res.json(respond(req, r))
-  })
+  // Old routes (the token travels in the body): for signed-in users and for clients that are still cached.
+  app.post('/api/wishes/:id/reserve', (req, res) => claim(req, res, req.params.id))
+  app.delete('/api/wishes/:id/reserve', (req, res) => release(req, res, req.params.id))
+  // Guests and signed-in people on the public page: everything under /api/shared/:token/, the one path a sign-in proxy has to let through
+  app.post('/api/shared/:token/wishes/:id/reserve', (req, res) => claim(req, res, req.params.id, listByToken(req.params.token).share_token))
+  app.delete('/api/shared/:token/wishes/:id/reserve', (req, res) => release(req, res, req.params.id, listByToken(req.params.token).share_token))
 }

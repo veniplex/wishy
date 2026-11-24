@@ -4,7 +4,7 @@ import { aiReason, api, errMsg, type AiAdmin } from '../api'
 import { resetAiStatus } from '../ai'
 import { t, useT } from '../i18n'
 import { Badge, Banner, Button, Card, Field, FormError, IconButton, PillTabs, Section, Segmented, Select, Switch, useToast } from '../ui'
-import { SectionHead } from './shared'
+import { SaveBar, SectionHead } from './shared'
 import { AiUsageAnalytics } from './ai-usage'
 import { AdminAiPrompts } from './ai-prompts'
 
@@ -37,6 +37,7 @@ export function AdminAi() {
   const [cfg, setCfg] = useState<AiCfg | null>(null)
   const [f, setF] = useState({ enabled: false, provider: 'anthropic', model: '', key: '', baseUrl: '', features: { link_import: true, text_import: true, image_import: true, suggestions: true }, linkMode: 'ai' as 'ai' | 'builtin', limit: '', userLimit: '', costCap: '', currency: 'USD', rate: '' })
   const [prices, setPrices] = useState<PriceRow[]>([])
+  const [base, setBase] = useState('')
   const [error, setError] = useState('')
   const [test, setTest] = useState<{ ok: boolean; latency_ms: number; model: string | null; error?: string; error_code?: string } | null>(null)
   const [testing, setTesting] = useState(false)
@@ -47,14 +48,16 @@ export function AdminAi() {
 
   const apply = (c: AiCfg) => {
     setCfg(c)
-    setF({
+    const nf = {
       enabled: c.ai_enabled, provider: c.ai_provider, model: c.ai_model, key: '', baseUrl: c.ai_base_url, features: c.ai_features, linkMode: c.ai_link_mode ?? 'ai',
       limit: c.ai_monthly_request_limit == null ? '' : String(c.ai_monthly_request_limit),
       userLimit: c.ai_monthly_user_limit == null ? '' : String(c.ai_monthly_user_limit),
       costCap: c.ai_monthly_cost_cap == null ? '' : String(c.ai_monthly_cost_cap),
       currency: c.ai_cost_currency || 'USD', rate: '',
-    })
+    }
+    setF(nf)
     setPrices(toRows(c.ai_prices ?? {}))
+    setBase(JSON.stringify([nf, toRows(c.ai_prices ?? {})]))
   }
   useEffect(() => { api<AiCfg>('GET', '/api/admin/ai').then(apply).catch((e) => setError(errMsg(e))) }, [])
 
@@ -176,15 +179,15 @@ export function AdminAi() {
               <Field label={t('ai.admin.linkMode')} hint={t('ai.admin.linkModeHint')} group>
                 <Segmented label={t('ai.admin.linkMode')} value={f.linkMode} onChange={(v) => setF({ ...f, linkMode: v })} options={[{ value: 'builtin', label: t('ai.admin.linkMode.builtin') }, { value: 'ai', label: t('ai.admin.linkMode.ai') }]} />
               </Field>
-              <div className="grid gap-4 sm:grid-cols-3">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
                 <Field label={t('aiUsage.admin.limit')} hint={t('aiUsage.admin.limitHint', { count: cfg.requests_this_month })}>
-                  <input className="input" inputMode="numeric" placeholder={t('aiUsage.admin.unlimited')} value={f.limit} onChange={(e) => setF({ ...f, limit: e.target.value })} />
+                  <input className="input" inputMode="numeric" enterKeyHint="done" placeholder={t('aiUsage.admin.unlimited')} value={f.limit} onChange={(e) => setF({ ...f, limit: e.target.value })} />
                 </Field>
                 <Field label={t('aiUsage.admin.userLimit')} hint={t('aiUsage.admin.userLimitHint')}>
-                  <input className="input" inputMode="numeric" placeholder={t('aiUsage.admin.unlimited')} value={f.userLimit} onChange={(e) => setF({ ...f, userLimit: e.target.value })} />
+                  <input className="input" inputMode="numeric" enterKeyHint="done" placeholder={t('aiUsage.admin.unlimited')} value={f.userLimit} onChange={(e) => setF({ ...f, userLimit: e.target.value })} />
                 </Field>
                 <Field label={t('aiUsage.admin.costCap', { currency: costCurrency })} hint={t('aiUsage.admin.costCapHint')}>
-                  <input className="input" inputMode="decimal" placeholder={t('aiUsage.admin.unlimited')} value={f.costCap} onChange={(e) => setF({ ...f, costCap: e.target.value })} />
+                  <input className="input" inputMode="decimal" enterKeyHint="done" placeholder={t('aiUsage.admin.unlimited')} value={f.costCap} onChange={(e) => setF({ ...f, costCap: e.target.value })} />
                 </Field>
               </div>
             </Card>
@@ -219,7 +222,7 @@ export function AdminAi() {
                 {!prices.length && <p className="meta">{t('aiUsage.prices.empty')}</p>}
               </div>
               <Button icon={Plus} onClick={() => setPrices([...prices, { id: '', input: '', output: '' }])}>{t('aiUsage.prices.add')}</Button>
-              <div className="grid gap-4 sm:grid-cols-2 pt-2 border-t border-line">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 pt-2 border-t border-line">
                 <Field label={t('aiUsage.prices.currency')} hint={t('aiUsage.prices.currencyHint')}>
                   <input className="input" maxLength={5} autoComplete="off" value={f.currency} onChange={(e) => { const currency = e.target.value.toUpperCase(); setF({ ...f, currency, rate: '' }) }} />
                 </Field>
@@ -233,7 +236,7 @@ export function AdminAi() {
           </Section>
 
           <FormError>{error}</FormError>
-          <div><Button variant="primary" type="submit">{t('admin.save')}</Button></div>
+          <SaveBar dirty={!!base && JSON.stringify([f, prices]) !== base} label={t('admin.save')} />
         </form>
       )}
 

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Banner, Badge, Button, Card, CopyField, Field, FormError, Section, Segmented, Switch, useConfirm } from '../ui'
 import { t, useT } from '../i18n'
-import { SectionHead } from './shared'
+import { SaveBar, SectionHead } from './shared'
 import { useSettingsGroup, type AuthSettings } from './use-settings'
 
 /**
@@ -115,7 +115,7 @@ export function AdminLogin() {
           </Section>
 
           <FormError>{error}</FormError>
-          <div><Button variant="primary" type="submit" disabled={saving}>{t('adminAuth.save')}</Button></div>
+          <SaveBar dirty={!!cfg && JSON.stringify([regEnabled, regMode, googleOn, clientId, secret, policy]) !== JSON.stringify([cfg.registration_enabled, cfg.registration_mode, cfg.google_enabled, cfg.google_client_id, '', cfg.two_factor_policy])} busy={saving} label={t('adminAuth.save')} />
         </form>
       )}
     </div>

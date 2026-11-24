@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
-import { RefreshCw } from 'lucide-react'
+import { ChevronRight, RefreshCw } from 'lucide-react'
 import { api, errMsg } from '../api'
 import { LOCALES, t, useT, type Locale, type TKey } from '../i18n'
-import { Badge, Banner, Button, Card, Field, FormError, Section, Segmented } from '../ui'
-import { SectionHead } from './shared'
+import { Badge, Banner, Button, Card, Field, FormError, Section, Segmented, useDesktopChrome } from '../ui'
+import { SaveBar, SectionHead } from './shared'
 import { useSettingsGroup, type GeneralSettings } from './use-settings'
 
 interface Diagnostics {
@@ -39,6 +39,8 @@ function ProxyDiagnostics({ reloadKey }: { reloadKey: string }) {
   const [d, setD] = useState<Diagnostics | null>(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const desktop = useDesktopChrome()
+  const [open, setOpen] = useState(false) // phones: collapsed until asked for
   const load = useCallback(async () => {
     setBusy(true)
     setError('')
@@ -59,6 +61,18 @@ function ProxyDiagnostics({ reloadKey }: { reloadKey: string }) {
     return text !== key ? text : w.message
   }
   const order = { error: 0, warning: 1, info: 2 } as const
+  if (!desktop && !open) {
+    const n = d?.warnings.length ?? 0
+    return (
+      <Section title={t('adminGeneral.diag.title')}>
+        <button type="button" className="card w-full min-h-14 px-4 py-3 flex items-center gap-3 text-left" aria-expanded={false} onClick={() => setOpen(true)}>
+          <span className="flex-1 min-w-0 text-sm text-muted">{d ? (n ? t('adminGeneral.diag.collapsedWarn', { count: n }) : t('adminGeneral.diag.allGood')) : t('adminGeneral.loading')}</span>
+          {n > 0 && <Badge tone="warn">{n}</Badge>}
+          <ChevronRight size={16} className="shrink-0 text-muted" aria-hidden />
+        </button>
+      </Section>
+    )
+  }
   return (
     <Section title={t('adminGeneral.diag.title')} action={<Button size="sm" icon={RefreshCw} disabled={busy} onClick={load}>{t('adminGeneral.diag.refresh')}</Button>}>
       <Card className="space-y-5">
@@ -66,7 +80,7 @@ function ProxyDiagnostics({ reloadKey }: { reloadKey: string }) {
         <FormError>{error}</FormError>
         {d && (
           <>
-            <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2 lg:grid-cols-3 text-sm">
+            <dl className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2 lg:grid-cols-3 text-sm">
               <Item label={t('adminGeneral.diag.protocol')}>{d.protocol}</Item>
               <Item label={t('adminGeneral.diag.host')}>{d.host}</Item>
               <Item label={t('adminGeneral.diag.clientIp')}>{d.client_ip ?? '–'}</Item>
@@ -114,6 +128,7 @@ export function AdminGeneral() {
   const [rAudit, setRAudit] = useState('')
   const [rAi, setRAi] = useState('')
   const [rSessions, setRSessions] = useState('')
+  const [rIp, setRIp] = useState('')
   useEffect(() => {
     if (!cfg) return
     setName(cfg.app_name)
@@ -123,10 +138,12 @@ export function AdminGeneral() {
     setRAudit(String(cfg.retention_audit_days))
     setRAi(String(cfg.retention_ai_usage_days))
     setRSessions(cfg.retention_sessions_days == null ? '' : String(cfg.retention_sessions_days))
+    setRIp(String(cfg.retention_ip_days ?? 90))
   }, [cfg])
 
   const envNote = (k: string, name: string) => (locked(k) ? t('adminGeneral.envLocked', { name }) : undefined)
   const num = (s: string) => (s.trim() === '' ? null : Number(s))
+  const dirty = !!cfg && JSON.stringify([name, baseUrl, locale, trust, rAudit, rAi, rSessions, rIp]) !== JSON.stringify([cfg.app_name, cfg.base_url, cfg.default_locale === 'en' ? 'en' : 'de', cfg.trust_proxy, String(cfg.retention_audit_days), String(cfg.retention_ai_usage_days), cfg.retention_sessions_days == null ? '' : String(cfg.retention_sessions_days), String(cfg.retention_ip_days ?? 90)])
   return (
     <div className="flex flex-col gap-8">
       <SectionHead title={t('adminGeneral.title')} sub={t('adminGeneral.sub')} />
@@ -144,14 +161,15 @@ export function AdminGeneral() {
                 retention_audit_days: num(rAudit),
                 retention_ai_usage_days: num(rAi),
                 retention_sessions_days: num(rSessions),
+                retention_ip_days: num(rIp),
               })
             }}
           >
             <Section title={t('adminGeneral.app.title')}>
               <Card className="space-y-4">
-                <Field label={t('adminGeneral.app.name')}><input className="input" maxLength={60} value={name} onChange={(e) => setName(e.target.value)} /></Field>
+                <Field label={t('adminGeneral.app.name')}><input className="input" maxLength={60} autoComplete="off" enterKeyHint="next" value={name} onChange={(e) => setName(e.target.value)} /></Field>
                 <Field label={t('adminGeneral.app.baseUrl')} hint={envNote('base_url', 'BASE_URL') ?? t('adminGeneral.app.baseUrlHint')}>
-                  <input className="input" type="url" placeholder="https://wishy.example.com" disabled={locked('base_url')} value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} />
+                  <input className="input" type="url" autoComplete="off" autoCapitalize="none" spellCheck={false} enterKeyHint="next" placeholder="https://wishy.example.com" disabled={locked('base_url')} value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} />
                 </Field>
                 <p className="meta -mt-2">{t('adminGeneral.app.effective', { url: cfg.effective_base_url })}</p>
                 <Field label={t('adminGeneral.app.locale')} group hint={t('adminGeneral.app.localeHint')}>
@@ -163,7 +181,7 @@ export function AdminGeneral() {
             <Section title={t('adminGeneral.proxy.title')}>
               <Card className="space-y-4">
                 <Field label={t('adminGeneral.proxy.trust')} hint={envNote('trust_proxy', 'TRUST_PROXY') ?? t('adminGeneral.proxy.trustHint')}>
-                  <input className="input sm:max-w-md" autoComplete="off" spellCheck={false} placeholder={t('adminGeneral.proxy.trustPlaceholder')} disabled={locked('trust_proxy')} value={trust} onChange={(e) => setTrust(e.target.value)} />
+                  <input className="input sm:max-w-md" autoComplete="off" autoCapitalize="none" enterKeyHint="done" spellCheck={false} placeholder={t('adminGeneral.proxy.trustPlaceholder')} disabled={locked('trust_proxy')} value={trust} onChange={(e) => setTrust(e.target.value)} />
                 </Field>
               </Card>
             </Section>
@@ -171,16 +189,17 @@ export function AdminGeneral() {
             <Section title={t('adminGeneral.retention.title')}>
               <Card className="space-y-4">
                 <p className="text-sm text-muted">{t('adminGeneral.retention.text')}</p>
-                <div className="grid gap-4 sm:grid-cols-3">
-                  <Field label={t('adminGeneral.retention.audit')}><input className="input" type="number" min={0} max={36500} step={1} inputMode="numeric" value={rAudit} onChange={(e) => setRAudit(e.target.value)} /></Field>
-                  <Field label={t('adminGeneral.retention.ai')} hint={t('adminGeneral.retention.aiHint')}><input className="input" type="number" min={0} max={36500} step={1} inputMode="numeric" value={rAi} onChange={(e) => setRAi(e.target.value)} /></Field>
-                  <Field label={t('adminGeneral.retention.sessions')} hint={t('adminGeneral.retention.sessionsHint')}><input className="input" type="number" min={0} max={36500} step={1} inputMode="numeric" value={rSessions} onChange={(e) => setRSessions(e.target.value)} /></Field>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                  <Field label={t('adminGeneral.retention.audit')}><input className="input" type="number" min={0} max={36500} step={1} inputMode="numeric" enterKeyHint="done" value={rAudit} onChange={(e) => setRAudit(e.target.value)} /></Field>
+                  <Field label={t('adminGeneral.retention.ai')} hint={t('adminGeneral.retention.aiHint')}><input className="input" type="number" min={0} max={36500} step={1} inputMode="numeric" enterKeyHint="done" value={rAi} onChange={(e) => setRAi(e.target.value)} /></Field>
+                  <Field label={t('adminGeneral.retention.sessions')} hint={t('adminGeneral.retention.sessionsHint')}><input className="input" type="number" min={0} max={36500} step={1} inputMode="numeric" enterKeyHint="done" value={rSessions} onChange={(e) => setRSessions(e.target.value)} /></Field>
+                  <Field label={t('adminGeneral.retention.ip')} hint={t('adminGeneral.retention.ipHint')}><input className="input" type="number" min={0} max={36500} step={1} inputMode="numeric" enterKeyHint="done" value={rIp} onChange={(e) => setRIp(e.target.value)} /></Field>
                 </div>
               </Card>
             </Section>
 
             <FormError>{error}</FormError>
-            <div><Button variant="primary" type="submit" disabled={saving}>{t('adminGeneral.save')}</Button></div>
+            <SaveBar dirty={dirty} busy={saving} label={t('adminGeneral.save')} />
           </form>
 
           <ProxyDiagnostics reloadKey={`${cfg.trust_proxy}|${cfg.base_url}`} />

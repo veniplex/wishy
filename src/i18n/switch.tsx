@@ -29,7 +29,7 @@ export function LanguageMenu() {
   const change = useChangeLocale()
   return (
     <Menu width={180} trigger={(p) => (
-      <button type="button" {...p} className="pill !min-h-9 !px-3 uppercase" aria-label={t('auth.language.aria')} title={t('auth.language.aria')}>
+      <button type="button" {...p} className="pill !min-h-9 pointer-coarse:!min-h-11 !px-3 uppercase" aria-label={t('auth.language.aria')} title={t('auth.language.aria')}>
         <Languages size={16} aria-hidden /> {locale}
       </button>
     )}>

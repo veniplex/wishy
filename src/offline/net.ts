@@ -9,7 +9,15 @@ export interface Reply {
   /** `X-Created-Id`: id of the row a create made */
   createdId: number | null
 }
-export interface SendOptions { space?: number | null; opId?: string; timeout?: number }
+export interface SendOptions {
+  space?: number | null
+  opId?: string
+  timeout?: number
+  /** Extra request headers (the guest's secret on public pages) */
+  headers?: Record<string, string>
+  /** A call to the public paths of a sign-in proxy: an answer from something in between says nothing about the server, so the reachability stays as it is */
+  quiet?: boolean
+}
 
 let reachable = typeof navigator === 'undefined' || navigator.onLine !== false
 const listeners = new Set<(reachable: boolean) => void>()
@@ -49,6 +57,7 @@ export async function rawSend(method: string, url: string, body?: unknown, opts:
         ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
         ...(opts.space != null ? { 'X-Space': String(opts.space) } : {}),
         ...(opts.opId ? { 'X-Op-Id': opts.opId } : {}),
+        ...opts.headers,
       },
       body: body !== undefined ? JSON.stringify(body) : undefined,
       signal: abort?.signal,
@@ -59,13 +68,13 @@ export async function rawSend(method: string, url: string, body?: unknown, opts:
     let json = true
     try { data = JSON.parse(text) } catch { json = false }
     if (!json && isForeign(res.status)) {
-      setReachable(false)
+      if (!opts.quiet) setReachable(false)
       return UNREACHABLE
     }
-    setReachable(true)
+    if (!opts.quiet) setReachable(true)
     return { status: res.status, statusText: res.statusText, data, createdId: Number(res.headers.get('X-Created-Id')) || null }
   } catch {
-    setReachable(false)
+    if (!opts.quiet) setReachable(false)
     return UNREACHABLE
   } finally {
     clearTimeout(timer)

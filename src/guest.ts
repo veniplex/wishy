@@ -1,0 +1,218 @@
+/**
+ * The public list page (/w/:token) for people without an account: calls to /api/shared/:token/... only (the one API path a sign-in
+ * proxy has to let through), the guest's key per list, the personal link, and the name that is remembered on this device.
+ *
+ * The guest key (>= 128 bit, crypto.getRandomValues) is generated when a browser opens a list for the first time and kept in
+ * localStorage per wishlist ID (not per link token: when the owner regenerates the link, the guest's claims stay theirs). The server
+ * learns it with the first claim or when the guest saves the personal link; it travels in the X-Guest-Key header, never in a URL.
+ * The personal link carries it in the URL FRAGMENT (`/w/<token>#g=<key>`): browsers never send the fragment to any server, proxy or
+ * log, and the page removes it from the address bar right after reading it.
+ * Without storage (private window) everything works for the open tab (the key lives in memory), only a reload forgets it.
+ */
+import { ApiError, errorText } from './api'
+import { send } from './offline/net'
+import { t } from './i18n'
+import type { PublicView } from './api'
+
+const NAME_KEY = 'guestName'
+const keyStore = (listId: number | string) => `wishy_guest_key_${listId}`
+/** Which list a link token belongs to (learned from the server's answers); the key itself is stored by list */
+const listKey = (token: string) => `wishy_guest_token_${token}`
+const KEY_RE = /^[A-Za-z0-9_-]{22,64}$/
+const memory = new Map<string, string>() // fallback when storage is blocked
+
+const read = (k: string): string => {
+  try { return localStorage.getItem(k) ?? memory.get(k) ?? '' } catch { return memory.get(k) ?? '' }
+}
+const write = (k: string, v: string) => {
+  memory.set(k, v)
+  try { localStorage.setItem(k, v) } catch { /* storage blocked: the key lives in memory */ }
+}
+const erase = (k: string) => {
+  memory.delete(k)
+  try { localStorage.removeItem(k) } catch { /* storage blocked */ }
+}
+
+export const savedGuestName = () => read(NAME_KEY)
+export const saveGuestName = (name: string) => write(NAME_KEY, name)
+const listOf = (token: string): string => read(listKey(token))
+const rememberList = (token: string, listId: number) => write(listKey(token), String(listId))
+const storedKey = (listId: number | string) => read(keyStore(listId))
+const saveKey = (listId: number | string, key: string) => write(keyStore(listId), key)
+/** The key of this browser for the list behind a link ('' = none yet) */
+export const guestKey = (token: string): string => {
+  const id = listOf(token)
+  return id ? storedKey(id) : ''
+}
+/** "Forget on this device": the key of the list is removed from this browser (the claims stay with whoever holds the personal link) */
+export const forgetGuestKey = (token: string) => {
+  const id = listOf(token)
+  if (id) erase(keyStore(id))
+}
+/** 128 bit of randomness, base64url (22 characters) */
+export function newGuestKey(): string {
+  const b = new Uint8Array(16)
+  crypto.getRandomValues(b)
+  let s = ''
+  for (const x of b) s += String.fromCharCode(x)
+  return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+}
+
+/** The personal link of this browser for the list: the same page, plus the key in the fragment */
+export const personalLink = (token: string): string => {
+  const key = guestKey(token)
+  return key ? `${location.origin}/w/${encodeURIComponent(token)}#g=${key}` : ''
+}
+
+/** Headers that tell the server which claims are yours: the key, and the name for claims made before keys existed (1.0/1.1) */
+function guestHeaders(key: string): Record<string, string> {
+  const name = savedGuestName()
+  return { ...(key ? { 'X-Guest-Key': key } : {}), ...(name ? { 'X-Guest-Name': encodeURIComponent(name) } : {}) }
+}
+
+type Call = { key?: string; mergeKey?: string }
+
+/**
+ * JSON call to a public path. Does not touch the "server reachable" state and never queues anything. `key` overrides the stored key
+ * (used to look at another guest identity), `mergeKey` is the second key of a merge.
+ */
+export async function publicApi<T>(method: 'GET' | 'POST' | 'PUT' | 'DELETE', url: string, token: string, body?: unknown, opts: Call = {}): Promise<T> {
+  const key = opts.key ?? guestKey(token)
+  const headers = guestHeaders(key)
+  if (opts.mergeKey) headers['X-Guest-Merge-Key'] = opts.mergeKey
+  const r = await send(method, url, body, { quiet: true, timeout: 20_000, headers })
+  if (r.status === 0) throw new ApiError(t('errors.network'), 0, 'offline')
+  if (r.status >= 400) throw new ApiError(errorText(r.data?.code, r.data?.error, r.data?.params) || r.statusText || t('errors.unknown'), r.status, r.data?.code)
+  const view = r.data as T & { wishlist?: { id?: number }; logged_in?: boolean }
+  const listId = view?.wishlist?.id
+  if (typeof listId === 'number' && opts.key === undefined) {
+    rememberList(token, listId)
+    if (!key) {
+      // A link this browser did not know yet: a key for that list may exist under an older link (regenerated by the owner), then ask
+      // again with it so the guest's own claims are recognised; otherwise this browser is a new guest and gets its key now
+      const known = storedKey(listId)
+      if (known && method === 'GET') return publicApi<T>(method, url, token, body, opts)
+      if (!known && !view.logged_in) saveKey(listId, newGuestKey())
+    }
+  }
+  return view
+}
+
+export const sharedUrl = (token: string, rest = '') => `/api/shared/${encodeURIComponent(token)}${rest}`
+
+// The page loads its list before the app knows whether anyone is signed in (the answer says so), so the first load is handed over
+let early: { token: string; view: PublicView; at: number } | null = null
+export const handOverPublicView = (token: string, view: PublicView) => { early = { token, view, at: Date.now() } }
+export function takePublicView(token: string): PublicView | null {
+  const e = early
+  early = null
+  return e && e.token === token && Date.now() - e.at < 10_000 ? e.view : null
+}
+
+/** The token of a public list page, null elsewhere */
+export const publicToken = (): string | null => {
+  const m = /^\/w\/([^/]+)\/?$/.exec(location.pathname)
+  try { return m ? decodeURIComponent(m[1]) : null } catch { return null }
+}
+
+// ───────────────────────────── Opening a personal link ─────────────────────────────
+
+/** What happened to a key found in the address bar */
+export type LinkResult =
+  | { kind: 'adopted' }
+  | { kind: 'invalid' }
+  /** This browser already has claims under another key: the guest decides whether to merge them into the link's identity */
+  | { kind: 'conflict'; token: string; listId: number; linkKey: string; storedKey: string; linkName: string; storedName: string; linkClaims: number; storedClaims: number }
+
+let pendingKey: string | null = null
+let linkResult: LinkResult | null = null
+const listeners = new Set<() => void>()
+/** The result of the last link (shown once by the page) */
+export function takeLinkResult(): LinkResult | null {
+  const r = linkResult
+  linkResult = null
+  return r
+}
+export const onLinkResult = (cb: () => void) => { listeners.add(cb); return () => { listeners.delete(cb) } }
+
+/** `#g=<key>` of the address bar: read it and remove it at once, so that copying the address bar later cannot leak the personal key */
+function readFragmentKey() {
+  if (typeof location === 'undefined' || !publicToken() || !location.hash) return
+  const m = /^#g=([^&]*)/.exec(location.hash)
+  if (!m) return
+  // The router's own history state stays as it is (and so do the entries of the back layer)
+  history.replaceState(history.state, '', location.pathname + location.search)
+  if (KEY_RE.test(m[1]) && new Set(m[1]).size >= 10) pendingKey = m[1]
+  else linkResult = { kind: 'invalid' }
+}
+
+/**
+ * Takes over a key that came with the link (if any) before the list is loaded: no key on this browser or none with claims -> the link's
+ * key becomes this browser's key; claims on both sides -> a conflict the page asks about; a key the server does not know while this
+ * browser has claims -> ignored.
+ */
+export async function applyLinkKey(token: string): Promise<void> {
+  readFragmentKey()
+  const key = pendingKey
+  pendingKey = null
+  if (!key) return
+  try {
+    if (listOf(token) && storedKey(listOf(token)) === key) return
+    const peek = await publicApi<PublicView>('GET', sharedUrl(token), token, undefined, { key })
+    const listId = peek.wishlist.id
+    rememberList(token, listId)
+    const own = storedKey(listId)
+    if (own === key) return
+    if (!own || peek.logged_in) {
+      saveKey(listId, key)
+      linkResult = { kind: 'adopted' }
+      return
+    }
+    const mine = (await publicApi<PublicView>('GET', sharedUrl(token), token, undefined, { key: own })).guest
+    if (!mine || !mine.claims) {
+      saveKey(listId, key)
+      linkResult = { kind: 'adopted' }
+      return
+    }
+    linkResult = peek.guest
+      ? { kind: 'conflict', token, listId, linkKey: key, storedKey: own, linkName: peek.guest.name, storedName: mine.name, linkClaims: peek.guest.claims, storedClaims: mine.claims }
+      : { kind: 'invalid' }
+  } catch {
+    linkResult = { kind: 'invalid' }
+  } finally {
+    listeners.forEach((cb) => cb())
+  }
+}
+
+/** The guest chose to merge: the claims of this browser's key move to the link's identity, which this browser uses from now on */
+export async function mergeIntoLink(c: Extract<LinkResult, { kind: 'conflict' }>): Promise<void> {
+  await publicApi<PublicView>('POST', sharedUrl(c.token, '/guest/merge'), c.token, {}, { key: c.linkKey, mergeKey: c.storedKey })
+  saveKey(c.listId, c.linkKey)
+}
+
+if (typeof window !== 'undefined') {
+  readFragmentKey() // as early as possible: the address bar is clean before anything else looks at it
+  // The personal link pasted into the address bar of an open list page changes only the fragment
+  window.addEventListener('hashchange', () => {
+    const token = publicToken()
+    if (token && /^#g=/.test(location.hash)) void applyLinkKey(token)
+  })
+}
+
+// ───────────────────────────── Takeover by a signed-in user ─────────────────────────────
+
+/** How many claims the key of this browser holds (for a signed-in user: offered to be taken over into the account) */
+export async function takeoverInfo(token: string): Promise<{ claims: number; name: string | null } | null> {
+  const key = guestKey(token)
+  if (!key) return null
+  const r = await send('GET', sharedUrl(token, '/guest/takeover'), undefined, { quiet: true, timeout: 20_000, headers: { 'X-Guest-Key': key } })
+  return r.status === 200 ? (r.data as { claims: number; name: string | null }) : null
+}
+export async function takeOver(token: string): Promise<PublicView> {
+  const key = guestKey(token)
+  const r = await send('POST', sharedUrl(token, '/guest/takeover'), {}, { quiet: true, timeout: 20_000, headers: { 'X-Guest-Key': key } })
+  if (r.status === 0) throw new ApiError(t('errors.network'), 0, 'offline')
+  if (r.status >= 400) throw new ApiError(errorText(r.data?.code, r.data?.error, r.data?.params) || r.statusText || t('errors.unknown'), r.status, r.data?.code)
+  forgetGuestKey(token)
+  return r.data as PublicView
+}

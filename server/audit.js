@@ -6,7 +6,8 @@ import { COOKIE, HOST_COOKIE, requireAdmin } from './session.js'
 import { bad } from './util.js'
 
 export const AUDIT_LEVELS = ['security', 'all']
-export const auditLevel = () => (AUDIT_LEVELS.includes(getSys('audit_level')) ? getSys('audit_level') : 'security')
+// Default "all": user activities (with IP) are logged out of the box. A level the admin chose explicitly (stored) stays.
+export const auditLevel = () => (AUDIT_LEVELS.includes(getSys('audit_level')) ? getSys('audit_level') : 'all')
 
 // ---------- Sanitizing the details ----------
 const SECRET_KEY = /(pass(word|phrase)?|secret|token|api_?key|key_?hash|authorization|cookie|otp|recovery|assertion|credential|ticket|private|^code$|^signature$)/i
@@ -64,20 +65,23 @@ function sessionUser(res) {
 const AUTH_ACTOR = /^(auth\.(login|register|setup|2fa)|account\.password\.reset)/
 
 // ---------- Protection against log flooding by anonymous failed attempts ----------
-// Failed operations without a user (wrong login, key guessing …) can be triggered by anyone any number of times. Per IP and action
-// at most ANON_BURST entries per ANON_WINDOW are written (the next entry carries the number of suppressed
-// repeats in details.suppressed); across all IPs at most ANON_GLOBAL_MAX entries per minute (IP rotation).
+// Failed operations without a user (wrong login, key guessing …) can be triggered by anyone any number of times, and so can
+// successful anonymous actions (a guest claiming wishes). Per IP and action at most ANON_BURST entries per ANON_WINDOW are written
+// (the next entry carries the number of suppressed repeats in details.suppressed); across all IPs at most ANON_GLOBAL_MAX entries
+// per minute (IP rotation). Successful anonymous actions get a roomier budget of their own (a family behind one NAT claims several
+// gifts in a minute), but are bounded as well.
 const ANON_WINDOW = 60_000
-const ANON_BURST = 5
-const ANON_GLOBAL_MAX = 120
-const anonSeen = new Map() // "ip|action" -> { start, n, suppressed }
-let anonGlobal = { start: 0, n: 0 }
+const ANON_LIMITS = { fail: { burst: 5, global: 120 }, ok: { burst: 30, global: 300 } }
+const anonSeen = new Map() // "kind|ip|action" -> { start, n, suppressed }
+const anonGlobal = { fail: { start: 0, n: 0 }, ok: { start: 0, n: 0 } }
 /** true = write (possibly with the counter of suppressed repeats), false = suppress. */
-function anonAllow(ip, action) {
+function anonAllow(ip, action, kind = 'fail') {
   const now = Date.now()
-  if (now - anonGlobal.start >= ANON_WINDOW) anonGlobal = { start: now, n: 0 }
-  if (anonGlobal.n >= ANON_GLOBAL_MAX) return { write: false }
-  const k = `${ip || '?'}|${action}`
+  const lim = ANON_LIMITS[kind]
+  let g = anonGlobal[kind]
+  if (now - g.start >= ANON_WINDOW) g = anonGlobal[kind] = { start: now, n: 0 }
+  if (g.n >= lim.global) return { write: false }
+  const k = `${kind}|${ip || '?'}|${action}`
   let e = anonSeen.get(k)
   if (!e || now - e.start >= ANON_WINDOW) {
     const prev = e?.suppressed || 0
@@ -86,12 +90,12 @@ function anonAllow(ip, action) {
     anonSeen.set(k, e)
     e.carry = prev
   }
-  if (e.n >= ANON_BURST) {
+  if (e.n >= lim.burst) {
     e.suppressed++
     return { write: false }
   }
   e.n++
-  anonGlobal.n++
+  g.n++
   const carry = e.carry || 0
   e.carry = 0
   return { write: true, suppressed: carry }
@@ -131,8 +135,8 @@ export function audit(ctx, action, info = {}) {
       label ??= ctx?.label ?? null
     }
     let details = info.details
-    if (!userId && via !== 'system' && info.status === 'fail') {
-      const a = anonAllow(ip, String(action))
+    if (!userId && via !== 'system') {
+      const a = anonAllow(ip, String(action), info.status === 'fail' ? 'fail' : 'ok')
       if (!a.write) return
       if (a.suppressed) details = { ...(details || {}), suppressed: a.suppressed }
     }
@@ -206,6 +210,16 @@ S('POST', '/api/account/2fa/webauthn/register', 'account.2fa.passkey.add')
 S('PUT', '/api/account/2fa/webauthn/:id', 'account.2fa.passkey.rename', { t: ['passkey', 'id'] })
 S('DELETE', '/api/account/2fa/webauthn/:id', 'account.2fa.passkey.remove', { t: ['passkey', 'id'] })
 S('POST', '/api/account/2fa/recovery/regenerate', 'account.2fa.recovery.regenerate')
+S('PATCH', '/api/account/2fa/webauthn/:id', 'account.2fa.passkey.rename', { t: ['passkey', 'id'] })
+S('POST', '/api/account/reauth', 'account.reauth', { details: (req) => pickVals(req.body, ['method']) })
+// Challenge fetches (no state change): not activities
+R('POST', '/api/account/2fa/webauthn/register-options', 'account.2fa.passkey.options', 'off')
+R('POST', '/api/auth/2fa/webauthn-options', 'auth.2fa.passkey.options', 'off')
+R('POST', '/api/auth/passkey/options', 'auth.passkey.options', 'off')
+R('POST', '/api/account/reauth/passkey-options', 'account.reauth.passkey.options', 'off')
+R('POST', '/api/auth/2fa/pending', 'auth.2fa.pending', 'off')
+R('POST', '/api/admin/ai/prompts/:feature/preview', 'admin.ai.prompt.preview', 'off')
+S('POST', '/api/admin/ai/prompts/:feature/test', 'admin.ai.prompt.test', { details: (req, b, p) => ({ feature: p.feature }) })
 S('DELETE', '/api/account/sessions/:id', 'account.session.revoke', { t: ['session', null] })
 S('POST', '/api/account/sessions/*', 'account.sessions.revoke_others')
 S('DELETE', '/api/account/sessions', 'account.sessions.revoke_others')
@@ -227,8 +241,8 @@ S('GET', '/api/admin/ai/usage/export.csv', 'admin.ai.usage.export', { details: (
 S('PUT', '/api/admin/api-keys/settings', 'admin.api.settings', { details: (req) => pickVals(req.body, ['api_enabled']) })
 S('DELETE', '/api/admin/api-keys/:id', 'admin.api_key.revoke', { t: ['api_key', 'id'] })
 S('PUT', '/api/admin/audit/settings', 'admin.audit.settings', { details: (req) => pickVals(req.body, ['audit_level']) })
-S('GET', '/api/admin/audit/export', 'audit.export', { details: (req) => pickVals(req.query, ['format', 'from', 'to', 'user_id', 'action', 'status', 'via', 'q']) })
-S('PUT', '/api/admin/retention', 'admin.retention.settings', { details: (req) => pickVals(req.body, ['retention_audit_days', 'retention_ai_usage_days', 'retention_sessions_days']) })
+S('GET', '/api/admin/audit/export', 'audit.export', { details: (req) => ({ ...pickVals(req.query, ['format', 'from', 'to', 'user_id', 'action', 'status', 'via', 'ip']), has_search: !!req.query.q, reveal_own: req.query.reveal_own === '1' }) })
+S('PUT', '/api/admin/retention', 'admin.retention.settings', { details: (req) => pickVals(req.body, ['retention_audit_days', 'retention_ai_usage_days', 'retention_sessions_days', 'retention_ip_days']) })
 S('POST', '/api/admin/retention/run', 'retention.run')
 S('POST', '/api/admin/backups', 'backup.create')
 S('POST', '/api/admin/backups/upload', 'backup.upload')
@@ -294,8 +308,14 @@ A('POST', '/api/wishlists/:id/wishes', 'wish.create', { t: ['wishlist', 'id'] })
 A('POST', '/api/wishlists/:id/reorder', 'wishlist.reorder', { t: ['wishlist', 'id'] })
 A('PUT', '/api/wishes/:id', 'wish.update', { t: ['wish', 'id'] })
 A('DELETE', '/api/wishes/:id', 'wish.delete', { t: ['wish', 'id'] })
-A('POST', '/api/wishes/:id/reserve', 'wish.reserve', { t: ['wish', 'id'] })
-A('DELETE', '/api/wishes/:id/reserve', 'wish.unreserve', { t: ['wish', 'id'] })
+// Claims and releases are logged at EVERY level (admin > reservations needs them). The route normally writes the entry itself with
+// the full context (list, owner, guest name); these rules are the fallback for failed attempts and for a route that does not.
+S('POST', '/api/wishes/:id/reserve', 'wish.reserve', { t: ['wish', 'id'] })
+S('DELETE', '/api/wishes/:id/reserve', 'wish.unreserve', { t: ['wish', 'id'] })
+A('POST', '/api/occasion-types/reorder', 'occasion_type.reorder')
+A('POST', '/api/relationship-types/reorder', 'relationship_type.reorder')
+// Link preview fetches an external page on the user's behalf (a POST for the body): logged with the host only
+A('POST', '/api/preview', 'link.preview', { details: (req) => { try { return { host: new URL(String(req.body?.url)).hostname } } catch { return {} } } })
 A('POST', '/api/ai/:feature', (req, p) => `ai.${p.feature}`)
 // --- Public API v1 (key calls)
 A('POST', '/api/v1/capture', 'api.capture', { details: (req, b) => ({ created: b?.created?.length ?? 0, inbox: b?.inbox ?? 0 }) })
@@ -331,6 +351,15 @@ function numericSpace(req) {
   return db.prepare('SELECT 1 FROM space_members WHERE space_id=? AND user_id=?').get(h, req.user.id) ? h : null
 }
 
+/** Owner of the wishlist a gift was planned from (gifts.wish_id), or null. */
+function wishOwnerOfGift(giftId) {
+  try {
+    return db.prepare('SELECT l.owner_user_id AS o FROM gifts g JOIN wishes w ON w.id=g.wish_id JOIN wishlists l ON l.id=w.wishlist_id WHERE g.id=?').get(giftId)?.o ?? null
+  } catch {
+    return null
+  }
+}
+
 /** Express middleware: automatically logs mutating /api requests (and selected reading ones). */
 export function auditMiddleware(req, res, next) {
   const pathname = String(req.originalUrl || req.url || '').split('?')[0]
@@ -338,6 +367,11 @@ export function auditMiddleware(req, res, next) {
   let hit = matchRule(req.method, pathname)
   if (hit && !hit.r.action && !mutating) hit = null // catch-all rules only apply to mutating calls
   if (!hit && !mutating) return next()
+  if (hit?.r.lvl === 'off') return next()
+  // A gift planned through a claim on a wish: remember whose wishlist it is BEFORE the handler runs (a delete removes the gift), so the
+  // entry can be hidden from the list owner (surprise protection in the admin views).
+  let giftOwner = null
+  if (hit && typeof hit.r.action === 'string' && hit.r.action.startsWith('gift.') && /^\d+$/.test(hit.params.id || '')) giftOwner = wishOwnerOfGift(Number(hit.params.id))
   let body
   if (hit && (hit.r.t || hit.r.details)) {
     const orig = res.json.bind(res)
@@ -384,6 +418,8 @@ export function auditMiddleware(req, res, next) {
         details.http_status = res.statusCode
         if (body && typeof body.code === 'string') details.error_code = body.code
       }
+      if (giftOwner) details.owner_user_id = giftOwner
+      if (req.get?.('X-Op-Id')) details.offline_op = true // a queued offline write: the entry time is when it reached the server
       const extra = req.auditInfo
       if (extra) {
         if (extra.target) target = extra.target
@@ -404,14 +440,53 @@ export function auditMiddleware(req, res, next) {
   next()
 }
 
-// ---------- Abfragen ----------
+// ---------- Queries ----------
 const dayStart = (s) => (/^\d{4}-\d{2}-\d{2}$/.test(s) ? `${s}T00:00:00.000Z` : s)
 const dayEnd = (s) => (/^\d{4}-\d{2}-\d{2}$/.test(s) ? `${s}T23:59:59.999Z` : s)
 
-function buildWhere(q) {
+// ---------- Surprise protection for list owners who are admins ----------
+// Who claimed which wish must stay secret from the list owner. An admin is often an owner too, so entries about claims on the
+// admin's OWN wishlists are left out of everything the admin sees here (list, filters, free-text search, counts, action list,
+// export) unless the admin deliberately reveals them (reveal_own=1, confirmed in the UI, and the reveal itself is logged).
+// The hidden count is deliberately the total over ALL such entries, independent of any filter or search, so that searching or
+// filtering can never be used to probe the hidden entries.
+// Guest identities (guest.*) are claim data as well: they name the guest of a list and tie them to its claims.
+export const CLAIM_ACTIONS = ['wish.reserve', 'wish.unreserve', 'admin.claim.release', 'guest.create', 'guest.rename', 'guest.merge', 'guest.takeover', 'admin.guest.delete']
+const CLAIM_IN = CLAIM_ACTIONS.map((a) => `'${a}'`).join(',')
+/**
+ * SQL (true = the entry is about a claim on a wishlist owned by `userId`). Claims carry details.owner_user_id; entries logged
+ * without it (older ones) are resolved through the wish id while the wish still exists. gift.* entries of a gift that was planned
+ * from a claim carry details.owner_user_id as well (set by the middleware).
+ */
+export function ownClaimSql(userId) {
+  const id = Number(userId) || -1
+  return {
+    sql: `COALESCE(((action IN (${CLAIM_IN}) AND (json_extract(details,'$.owner_user_id')=? OR (target_type='wish' AND CAST(target_id AS INTEGER) IN (SELECT w.id FROM wishes w JOIN wishlists l ON l.id=w.wishlist_id WHERE l.owner_user_id=?)))) OR (action LIKE 'gift.%' AND json_extract(details,'$.owner_user_id')=?)),0)`,
+    params: [id, id, id],
+  }
+}
+
+/** Reveal of hidden own entries: a deliberate act, logged (at most once per 5 minutes and admin per scope to keep the log readable). */
+const revealSeen = new Map()
+export function noteReveal(req, scope) {
+  const k = `${req.user?.id}|${scope}`
+  const now = Date.now()
+  if (now - (revealSeen.get(k) || 0) < 300_000) return
+  revealSeen.set(k, now)
+  audit(req, 'audit.reveal_own', { target: { type: 'claims' }, details: { scope } })
+}
+export const wantsReveal = (q) => q?.reveal_own === '1' || q?.reveal_own === 'true' || q?.reveal_own === true
+
+/** opts.me: id of the requesting admin (their own claim entries are hidden unless opts.reveal) */
+function buildWhere(q, opts = {}) {
   const w = []
   const p = []
   const str = (k) => (typeof q[k] === 'string' && q[k].trim() ? q[k].trim() : null)
+  if (opts.me && !opts.reveal) {
+    const m = ownClaimSql(opts.me)
+    w.push(`NOT ${m.sql}`)
+    p.push(...m.params)
+  }
   const from = str('from')
   const to = str('to')
   if (from) {
@@ -449,6 +524,13 @@ function buildWhere(q) {
     w.push('via=?')
     p.push(via)
   }
+  // IP: exact, or a prefix with a trailing * (e.g. 203.0.113.*)
+  const ip = str('ip')
+  if (ip) {
+    const v = ip.slice(0, 64)
+    if (v.endsWith('*')) (w.push("ip LIKE ? ESCAPE '\\'"), p.push(v.slice(0, -1).replace(/[%_\\]/g, '\\$&') + '%'))
+    else (w.push('ip=?'), p.push(v))
+  }
   for (const k of ['target_type', 'target_id']) if (str(k)) (w.push(`${k}=?`), p.push(str(k)))
   if (str('space_id')) (w.push('space_id=?'), p.push(Number(str('space_id')) || -1))
   const text = str('q')
@@ -471,8 +553,14 @@ const safeParse = (s) => {
   }
 }
 
-export function listAudit(q) {
-  const { w, p } = buildWhere(q)
+/** Number of entries about claims on the admin's own lists (all of them, independent of filters). */
+export function hiddenOwnCount(userId) {
+  const m = ownClaimSql(userId)
+  return db.prepare(`SELECT COUNT(*) AS n FROM audit_log WHERE ${m.sql}`).get(...m.params).n
+}
+
+export function listAudit(q, opts = {}) {
+  const { w, p } = buildWhere(q, opts)
   const limit = Math.min(200, Math.max(1, Number(q.limit) || 50))
   const cursor = Number(q.cursor)
   if (q.cursor && Number.isInteger(cursor) && cursor > 0) (w.push('id<?'), p.push(cursor))
@@ -481,41 +569,65 @@ export function listAudit(q) {
     .all(...p, limit + 1)
   const more = rows.length > limit
   const items = rows.slice(0, limit).map(view)
-  return { items, next_cursor: more ? items[items.length - 1].id : null, limit }
+  const out = { items, next_cursor: more ? items[items.length - 1].id : null, limit }
+  if (opts.me) Object.assign(out, { reveal_own: !!opts.reveal, hidden_own: opts.reveal ? 0 : hiddenOwnCount(opts.me) })
+  return out
 }
 
 const csvCell = (v) => {
   if (v === null || v === undefined) return ''
   let s = typeof v === 'object' ? JSON.stringify(v) : String(v)
-  if (/^[=+\-@\t\r]/.test(s)) s = "'" + s // Formelinjektion in Tabellenkalkulationen verhindern
+  if (/^[=+\-@\t\r]/.test(s)) s = "'" + s // prevent formula injection in spreadsheets
   return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
 }
 export const csvRow = (cells) => cells.map(csvCell).join(',') + '\r\n'
 
 const COLS = ['id', 'at', 'actor_user_id', 'actor_label', 'via', 'ip', 'user_agent', 'action', 'target_type', 'target_id', 'target_label', 'space_id', 'status', 'details']
 
+const totalRows = (me, reveal) => {
+  if (!me || reveal) return db.prepare('SELECT COUNT(*) AS n FROM audit_log').get().n
+  const m = ownClaimSql(me)
+  return db.prepare(`SELECT COUNT(*) AS n FROM audit_log WHERE NOT ${m.sql}`).get(...m.params).n
+}
+const settingsOut = (req) => {
+  const reveal = wantsReveal(req.query)
+  return {
+    audit_level: auditLevel(),
+    audit_level_stored: AUDIT_LEVELS.includes(getSys('audit_level')),
+    levels: AUDIT_LEVELS,
+    total: totalRows(req.user.id, reveal),
+    hidden_own: reveal ? 0 : hiddenOwnCount(req.user.id),
+  }
+}
+
 export function auditRoutes(app) {
   const A_ = requireAdmin
 
-  app.get('/api/admin/audit', A_, (req, res) => res.json(listAudit(req.query)))
+  app.get('/api/admin/audit', A_, (req, res) => {
+    const reveal = wantsReveal(req.query)
+    if (reveal) noteReveal(req, 'audit')
+    res.json(listAudit(req.query, { me: req.user.id, reveal }))
+  })
 
   app.get('/api/admin/audit/actions', A_, (req, res) => {
-    res.json(db.prepare('SELECT DISTINCT action FROM audit_log ORDER BY action').all().map((r) => r.action))
+    const reveal = wantsReveal(req.query)
+    const m = ownClaimSql(req.user.id)
+    // Action names of hidden entries must not show up either (an action that only occurs on own lists would reveal its existence)
+    res.json(db.prepare(`SELECT DISTINCT action FROM audit_log ${reveal ? '' : `WHERE NOT ${m.sql}`} ORDER BY action`).all(...(reveal ? [] : m.params)).map((r) => r.action))
   })
 
-  app.get('/api/admin/audit/settings', A_, (req, res) => {
-    res.json({ audit_level: auditLevel(), levels: AUDIT_LEVELS, total: db.prepare('SELECT COUNT(*) AS n FROM audit_log').get().n })
-  })
+  app.get('/api/admin/audit/settings', A_, (req, res) => res.json(settingsOut(req)))
   app.put('/api/admin/audit/settings', A_, (req, res) => {
     const lvl = req.body?.audit_level
     if (!AUDIT_LEVELS.includes(lvl)) throw Object.assign(bad('Invalid log level'), { code: 'invalid_value' })
     setSys('audit_level', lvl)
-    res.json({ audit_level: auditLevel(), levels: AUDIT_LEVELS, total: db.prepare('SELECT COUNT(*) AS n FROM audit_log').get().n })
+    res.json(settingsOut(req))
   })
 
   app.get('/api/admin/audit/export', A_, (req, res) => {
     const format = req.query.format === 'json' ? 'json' : 'csv'
-    const { w, p } = buildWhere(req.query)
+    const reveal = wantsReveal(req.query)
+    const { w, p } = buildWhere(req.query, { me: req.user.id, reveal })
     const stamp = new Date().toISOString().slice(0, 10)
     res.setHeader('Content-Type', format === 'csv' ? 'text/csv; charset=utf-8' : 'application/json; charset=utf-8')
     res.setHeader('Content-Disposition', `attachment; filename="wishy-audit-${stamp}.${format}"`)

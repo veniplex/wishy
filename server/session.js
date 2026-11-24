@@ -141,9 +141,9 @@ export function csrfGuard(req, res, next) {
 }
 
 // ---------- Sitzungsliste ----------
-const sid16 = (id) => createHash('sha256').update(id).digest('hex').slice(0, 16)
+export const sid16 = (id) => createHash('sha256').update(id).digest('hex').slice(0, 16)
 
-function describeUa(ua) {
+export function describeUa(ua) {
   const s = String(ua || '')
   const browser = /Edg\//.test(s) ? 'Edge' : /OPR\/|Opera/.test(s) ? 'Opera' : /Firefox\//.test(s) ? 'Firefox' : /Chrome\//.test(s) ? 'Chrome' : /Safari\//.test(s) ? 'Safari' : /curl|node|undici|python/i.test(s) ? 'API client' : 'Unknown'
   const os = /Windows/.test(s) ? 'Windows' : /Android/.test(s) ? 'Android' : /iPhone|iPad|iOS/.test(s) ? 'iOS' : /Mac OS X|Macintosh/.test(s) ? 'macOS' : /Linux/.test(s) ? 'Linux' : ''

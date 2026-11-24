@@ -11,6 +11,7 @@ import {
   type DragEvent, type KeyboardEvent as RKeyboardEvent, type ReactElement, type ReactNode, type RefObject,
 } from 'react'
 import { createPortal } from 'react-dom'
+import { useBackLayer } from './back-layer'
 import { fmtIntl, getLocale, monthNames, t, weekdaysShort } from './i18n'
 import { CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, Plus, Search, X, type LucideIcon } from 'lucide-react'
 
@@ -19,6 +20,8 @@ const cx = (...c: (string | false | null | undefined)[]) => c.filter(Boolean).jo
 // ───────────────────────────── Popover ─────────────────────────────
 
 const popStack: symbol[] = []
+/** Touch-first device (finger): skip autofocus of text fields there, the on-screen keyboard would cover the list. */
+export const isCoarse = () => typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches
 const narrowNow = () => typeof window !== 'undefined' && window.matchMedia('(max-width: 639px)').matches
 
 export type CloseReason = 'escape' | 'outside' | 'pick'
@@ -50,6 +53,7 @@ export function Popover({ anchor, onClose, children, matchWidth, width = 288, al
   const closeRef = useRef(onClose)
   closeRef.current = onClose
   const asSheet = !!sheet && narrow
+  useBackLayer(() => closeRef.current('escape'), asSheet)
 
   const place = useCallback(() => {
     const a = anchor.current, el = ref.current
@@ -110,8 +114,8 @@ export function Popover({ anchor, onClose, children, matchWidth, width = 288, al
   if (asSheet) {
     return createPortal(
       <>
-        <div className="pop-scrim" aria-hidden />
-        <div className="fixed inset-x-0 bottom-0 z-[71]">
+        <div className="pop-scrim touch-none overscroll-none" aria-hidden onWheel={(e) => e.preventDefault()} />
+        <div className="fixed inset-x-0 bottom-0 z-[71] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
           <div ref={ref} className={cx('pop-sheet mx-auto max-w-lg', className)}>
             <div className="mx-auto mt-2.5 mb-1 h-1 w-10 rounded-full bg-line shrink-0" aria-hidden />
             {title && <div className="px-5 pt-1 pb-2 font-display font-semibold shrink-0">{title}</div>}
@@ -225,7 +229,7 @@ function ListPanel({ idBase, options, selected, multiple, onPick, searchable, cr
   useEffect(() => { setActive(query ? rows.findIndex((_, i) => enabled(i)) : Math.max(0, firstSel())) /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [query])
 
   useEffect(() => { document.getElementById(`${idBase}-o${active}`)?.scrollIntoView({ block: 'nearest' }) }, [active, idBase, view])
-  useEffect(() => { (searchable ? searchRef.current : listRef.current)?.focus({ preventScroll: true }) }, [searchable, view])
+  useEffect(() => { if (searchable && isCoarse()) return; (searchable ? searchRef.current : listRef.current)?.focus({ preventScroll: true }) }, [searchable, view])
 
   const move = (from: number, d: number) => {
     for (let i = from + d; i >= 0 && i < rows.length; i += d) if (enabled(i)) return i
@@ -569,15 +573,32 @@ const addMonths = (s: string, n: number) => {
   return mk(p.y, p.m + n, Math.min(p.d, last))
 }
 const display = (s: string) => { const p = splitIso(s); return p ? [pad(p.d), pad(p.m + 1), p.y].join(getLocale() === 'de' ? '.' : '/') : '' }
-/** "24.12.2026", "24.12.26", "24122026", "2026-12-24" */
+/** "24.12.2026", "24.12.26", "24122026", "241226", "24.12." / "2412" (current year), "2026-12-24" */
 function parseInput(t: string): string | null {
   const x = t.trim()
   if (!x) return ''
   let y: number, m: number, d: number
   let r = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(x)
-  if (r) { y = +r[1]; m = +r[2]; d = +r[3] } else if ((r = /^(\d{1,2})[./\s-](\d{1,2})[./\s-](\d{2}|\d{4})$/.exec(x))) { d = +r[1]; m = +r[2]; y = +r[3]; if (r[3].length === 2) { y += 2000; if (y > new Date().getFullYear() + 10) y -= 100 } } else if ((r = /^(\d{2})(\d{2})(\d{4})$/.exec(x))) { d = +r[1]; m = +r[2]; y = +r[3] } else return null
+  if (r) { y = +r[1]; m = +r[2]; d = +r[3] } else if ((r = /^(\d{1,2})[./\s-](\d{1,2})[./\s-](\d{2}|\d{4})$/.exec(x))) { d = +r[1]; m = +r[2]; y = +r[3]; if (r[3].length === 2) { y += 2000; if (y > new Date().getFullYear() + 10) y -= 100 } } else if ((r = /^(\d{2})(\d{2})(\d{4})$/.exec(x))) { d = +r[1]; m = +r[2]; y = +r[3] } else if ((r = /^(\d{2})(\d{2})(\d{2})$/.exec(x))) { d = +r[1]; m = +r[2]; y = +r[3] + 2000; if (y > new Date().getFullYear() + 10) y -= 100 } else if ((r = /^(\d{1,2})[./\s-](\d{1,2})[./\s-]?$/.exec(x)) || (r = /^(\d{2})(\d{2})$/.exec(x))) { d = +r[1]; m = +r[2]; y = new Date().getFullYear() } else return null
   const t2 = new Date(y, m - 1, d)
   return t2.getFullYear() === y && t2.getMonth() === m - 1 && t2.getDate() === d ? mk(y, m - 1, d) : null
+}
+/** Live formatting while typing: digits get separators (dd.mm.yyyy / dd/mm/yyyy); `grow` = text got longer (no auto-separator when deleting). */
+function formatTyped(raw: string, grow: boolean): string {
+  if (/[^\d./\s-]/.test(raw) || /^\d{4}-/.test(raw)) return raw
+  const sep = getLocale() === 'de' ? '.' : '/'
+  const L = [2, 2, 4]
+  const done: string[] = []
+  let cur = ''
+  for (const c of raw) {
+    if (/\d/.test(c)) {
+      if (cur.length >= L[done.length] && done.length < 2) { done.push(cur); cur = '' }
+      if (cur.length < L[done.length]) cur += c
+    } else if (cur && done.length < 2) { done.push(cur.length === 1 ? `0${cur}` : cur); cur = '' }
+  }
+  const parts = cur ? [...done, cur] : done
+  const tail = grow && parts.length < 3 && (cur === '' ? parts.length > 0 : cur.length === L[done.length]) ? sep : ''
+  return parts.join(sep) + tail
 }
 const longDate = (s: string) => { const p = splitIso(s)!; return fmtIntl(new Date(p.y, p.m, p.d), { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) }
 
@@ -722,7 +743,9 @@ export function DatePicker({ value, onChange, min, max, required, clearable, inv
   useEffect(() => { if (!editing) setText(display(value)) }, [value, editing])
   const inRange = (s: string) => !(min && s < min) && !(max && s > max)
   const commit = (): boolean => {
-    const r = parseInput(text)
+    let r = parseInput(text)
+    // "24.12." without a year: next occurrence when this year's date is out of range
+    if (r && !inRange(r) && /^\d{1,2}[./\s-]?\d{1,2}[./\s-]?$/.test(text.trim())) { const q = splitIso(r)!; const n = mk(q.y + 1, q.m, q.d); if (inRange(n)) r = n }
     if (r === null || (r !== '' && !inRange(r))) { setText(display(value)); return false }
     if (r !== value) onChange(r)
     setText(display(r))
@@ -732,16 +755,16 @@ export function DatePicker({ value, onChange, min, max, required, clearable, inv
   return (
     <div
       ref={wrap}
-      className={cx('input flex items-center gap-1 !pr-1.5 focus-within:border-accent focus-within:ring-[3px] focus-within:ring-accent/25', open && 'border-accent ring-[3px] ring-accent/25', invalid && 'input-invalid', inline ? 'inline-flex !w-auto' : '', disabled && 'opacity-60', className)}
+      className={cx('input flex items-center gap-1 pointer-coarse:gap-2 !pr-1.5 focus-within:border-accent focus-within:ring-[3px] focus-within:ring-accent/25', open && 'border-accent ring-[3px] ring-accent/25', invalid && 'input-invalid', inline ? 'inline-flex !w-auto' : '', disabled && 'opacity-60', className)}
     >
       <input
-        ref={input} id={id} type="text" inputMode="numeric" autoComplete="off" required={required} disabled={disabled} placeholder={placeholder} aria-label={aria['aria-label']}
+        ref={input} id={id} type="text" inputMode="numeric" autoComplete="off" enterKeyHint="done" spellCheck={false} required={required} disabled={disabled} placeholder={placeholder} aria-label={aria['aria-label']}
         aria-haspopup="dialog" aria-expanded={open} aria-invalid={invalid || undefined}
         className={cx('flex-1 min-w-0 h-full bg-transparent outline-none tabular-nums', inline ? 'w-28' : '')}
         value={text}
         onFocus={() => setEditing(true)}
         onBlur={() => { setEditing(false); commit() }}
-        onChange={(e) => setText(e.target.value)}
+        onChange={(e) => setText(formatTyped(e.target.value, e.target.value.length > text.length))}
         onKeyDown={(e) => {
           if (e.key === 'ArrowDown' || (e.altKey && e.key === 'ArrowUp')) { e.preventDefault(); setOpen(true) }
           else if (e.key === 'Enter' && parseInput(text) !== value && !(parseInput(text) === null)) { e.preventDefault(); commit() }
@@ -749,9 +772,9 @@ export function DatePicker({ value, onChange, min, max, required, clearable, inv
         }}
       />
       {canClear && value && !disabled && (
-        <button type="button" className="icon-btn icon-btn-sm !size-8" aria-label={t('controls.clearDate')} onClick={() => { onChange(''); setText(''); input.current?.focus() }}><X size={15} /></button>
+        <button type="button" className="icon-btn icon-btn-sm !size-8 pointer-coarse:!size-11 pointer-coarse:-my-0.5" aria-label={t('controls.clearDate')} onClick={() => { onChange(''); setText(''); input.current?.focus() }}><X size={15} /></button>
       )}
-      <button type="button" className="icon-btn icon-btn-sm !size-8" disabled={disabled} aria-label={open ? t('controls.closeCalendar') : t('controls.openCalendar')} aria-expanded={open} onClick={() => setOpen(!open)}><CalendarDays size={16} /></button>
+      <button type="button" className="icon-btn icon-btn-sm !size-8 pointer-coarse:!size-11 pointer-coarse:-my-0.5" disabled={disabled} aria-label={open ? t('controls.closeCalendar') : t('controls.openCalendar')} aria-expanded={open} onClick={() => setOpen(!open)}><CalendarDays size={16} /></button>
       {open && (
         <Popover anchor={wrap} width={308} sheet title={t('controls.chooseDate')} onClose={(r) => { setOpen(false); if (r !== 'outside') input.current?.focus({ preventScroll: true }) }}>
           <Calendar value={value} min={min} max={max} clearable={canClear} onPick={pick} onClear={() => pick('')} />
@@ -766,7 +789,7 @@ export function DatePicker({ value, onChange, min, max, required, clearable, inv
 /** Custom checkbox (real <input> underneath, so keyboard and forms work as usual). */
 export function Checkbox({ checked, onChange, children, disabled, className }: { checked: boolean; onChange: (v: boolean) => void; children?: ReactNode; disabled?: boolean; className?: string }) {
   return (
-    <label className={cx('flex items-start gap-2.5 text-sm min-h-6 select-none', disabled ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer', className)}>
+    <label className={cx('flex items-start gap-2.5 text-sm min-h-6 pointer-coarse:min-h-11 pointer-coarse:items-center select-none', disabled ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer', className)}>
       <input type="checkbox" className="peer sr-only" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} />
       <span
         aria-hidden
@@ -783,7 +806,7 @@ export function Checkbox({ checked, onChange, children, disabled, className }: {
 /** Switch for on/off settings (role="switch"). Label on the left, switch on the right. */
 export function Switch({ checked, onChange, children, disabled, className }: { checked: boolean; onChange: (v: boolean) => void; children?: ReactNode; disabled?: boolean; className?: string }) {
   return (
-    <label className={cx('flex items-center gap-3 text-sm min-h-8 select-none', disabled ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer', className)}>
+    <label className={cx('flex items-center gap-3 text-sm min-h-8 pointer-coarse:min-h-11 select-none', disabled ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer', className)}>
       {children != null && <span className="flex-1 min-w-0">{children}</span>}
       <input type="checkbox" role="switch" className="peer sr-only" checked={checked} disabled={disabled} aria-checked={checked} onChange={(e) => onChange(e.target.checked)} />
       <span

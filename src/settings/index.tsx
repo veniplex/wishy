@@ -1,9 +1,10 @@
 import { Navigate, Outlet, Route } from 'react-router-dom'
+import { RootRoutes } from '../lazy'
 import { useFeatures } from '../features'
 import { t, useT } from '../i18n'
 import { useReachable } from '../offline/hooks'
 import { NeedsConnection } from '../offline/ui'
-import { Page, PageHeader, SectionLayout, type SectionNavItem } from '../ui'
+import { Page, PageHeader, SectionIndex, SectionLayout, type SectionNavItem } from '../ui'
 import { KeyRound, Palette, Sparkles, User, Users } from 'lucide-react'
 import { AiTab } from './ai-tab'
 import { AccountTab } from './account-tab'
@@ -28,7 +29,7 @@ export function SettingsLayout() {
   return (
     <Page>
       <PageHeader title={t('settings.title')} />
-      <SectionLayout label={t('settings.tabs.label')} items={items}><Outlet /></SectionLayout>
+      <SectionLayout label={t('settings.tabs.label')} rootLabel={t('settings.title')} items={items}><div className="flex flex-col gap-6 md:gap-8"><Outlet /></div></SectionLayout>
     </Page>
   )
 }
@@ -43,7 +44,7 @@ function ApiRoute() {
 /** Routes under /settings (mounted in AppRoutes) */
 export const settingsRoutes = (
   <Route path="/settings" element={<SettingsLayout />}>
-    <Route index element={<Navigate to="/settings/account" replace />} />
+    <Route index element={<SectionIndex to="/settings/account" />} />
     <Route path="account" element={<AccountTab />} />
     <Route path="appearance" element={<AppearanceTab />} />
     <Route path="space" element={<SpaceTab />} />
@@ -52,3 +53,8 @@ export const settingsRoutes = (
     <Route path="*" element={<Navigate to="/settings/account" replace />} />
   </Route>
 )
+
+/** Lazy entry (App.tsx mounts it at /settings/*) */
+export function SettingsRoutes() {
+  return <RootRoutes>{settingsRoutes}</RootRoutes>
+}

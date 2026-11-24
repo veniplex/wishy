@@ -1,6 +1,7 @@
 /** In-app documentation of the public API and the shortcuts guide. */
 export default {
   'title': 'Dokumentation',
+  'collapsedHint': 'Wie du die API ansprichst, Endpunkte, Beispiele und die Kurzbefehl-Anleitung',
   'baseUrl': 'Basis-Adresse der API',
   'baseUrlHint': 'Alle Endpunkte hängen an dieser Adresse.',
   'auth': 'Anmeldung',

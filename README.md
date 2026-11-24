@@ -26,8 +26,8 @@ in one container with one SQLite file. The interface is available in English and
 
 ## Features
 
-- 🎁 **Wish lists:** as many as you like, shared by link (no account needed) or with other users. Guests reserve items and
-  the owner never finds out which.
+- 🎁 **Wish lists:** as many as you like, shared by link (no account needed) or with other users. Guests reserve items
+  (and can manage them later with a personal link, also on other devices); the owner never finds out which.
 - 🧑‍🤝‍🧑 **Person-centred planning:** each person has a birthday, ideas and gifts, grouped by occasion. Occasions apply to
   everyone or to selected people, and you can leave individuals out.
 - 📅 **Calendar:** month grid and list, recurring occasions and birthdays, your own occasion types.
@@ -36,7 +36,7 @@ in one container with one SQLite file. The interface is available in English and
 - 🔗 **Link import:** title, image and price from product pages, with headless Chromium when needed.
 - 📱 **Works offline:** install it as an app (PWA, needs HTTPS). Your data is available without a connection; changes are
   kept on the device and synchronised as soon as the server is reachable again.
-- 🔐 **Accounts:** email and password, 2FA (TOTP), passkeys, Google sign-in; open, invite-only or closed registration.
+- 🔐 **Accounts:** email and password, 2FA (TOTP), passkeys (sign in without a password), Google sign-in; open, invite-only or closed registration.
 - 🛠️ **Administration:** users, audit log, REST API with API keys, optional AI features (Anthropic, OpenAI, Google), always marked in the app; link import works with the built-in page parser or with AI (admin default, choosable per import).
 - 🔄 **Operations:** encrypted backups, signed updates of the app or the whole image, automatic rollback.
 
@@ -140,7 +140,7 @@ services:
 #     depends_on: [docker-proxy]
 #
 #  docker-proxy:
-#    image: wollomatic/socket-proxy:1.10.0
+#    image: wollomatic/socket-proxy:1.14.0
 #    restart: unless-stopped
 #    read_only: true
 #    cap_drop: [ALL]
@@ -223,6 +223,12 @@ prepared in the Compose file. This access is roughly root on the host, so it is 
 
 On the internet, only run Wishy behind HTTPS (session cookies, passkeys, Google sign-in). Set `BASE_URL` and
 `TRUST_PROXY` (number of proxy hops in front of the container). Details: [docs/operations.md](docs/operations.md#2-docker).
+Passkeys only work on `https://` (or `http://localhost`) and are bound to the host name of `BASE_URL`: if the host name changes, existing passkeys
+stop working (sign in with password and set them up again).
+
+If the proxy has its own sign-in (Pangolin, Authelia, …), let `/w/*`, `/api/shared/*`, `/api/images/*`, `/api/v1/*`,
+`/api/auth/google/callback`, `/healthz` and `/assets/*` through without it (listed in Admin › General): public wish list links
+then work for people without an account, including reserving.
 
 </details>
 
@@ -265,10 +271,15 @@ backups: [docs/operations.md](docs/operations.md).
   npm packages. If you grant it, use the restricted socket proxy from `docker-compose.yml` (option B), not the directly
   mounted socket. See [docs/operations.md](docs/operations.md#32-image-updates-whole-container).
 - Only run behind HTTPS.
+- **What is logged (for your privacy notice):** the audit log records activities of signed-in users and every wish reservation
+  with the **IP address and browser/device string** of the request, never contents or secrets. Guests without an account get a pseudonymous guest ID per list (name they typed, hash of a key kept in their browser and personal link, never the key itself). IPs and devices are anonymised
+  after 90 days by default (Admin › General › Retention); entries themselves are kept 365 days. Only admins can see them, and an admin
+  does not see reservations on their own wishlists (surprise) unless they reveal them deliberately, which is logged. Set `TRUST_PROXY`
+  behind a reverse proxy so the real client IP is recorded. Details: [docs/operations.md](docs/operations.md#2-docker).
 
 ## Development
 
-Requires Node.js 24 (built-in SQLite, no native dependencies).
+Requires Node.js 24 or newer (built-in SQLite, no native dependencies); the Docker image and CI use Node.js 26 (LTS), CI also tests on 24.
 
 ```bash
 npm ci
