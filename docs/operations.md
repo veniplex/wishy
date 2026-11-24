@@ -39,7 +39,7 @@ Volume /data
 
 ```bash
 mkdir -p data && sudo chown 1000:1000 data     # the container runs as user "node" (UID 1000)
-docker compose up -d                            # or, the first time without an image: docker compose up -d --build
+docker compose up -d
 ```
 
 `docker-compose.yml` uses `ghcr.io/veniplex/wishy:latest` (variable `WISHY_IMAGE`) and already sets
@@ -59,6 +59,8 @@ Chromium (link preview).
 | `UPDATE_ALLOWED_HOSTS` | additional download hosts (default: github.com, objects/release-assets.githubusercontent.com) |
 | `WISHY_HEALTH_TIMEOUT_MS` | deadline for a new version to become healthy (default 90000) |
 | `WISHY_MAX_ARTIFACT_MB` | maximum size of an app update archive (default 512) |
+
+All variables with their defaults: [docker-compose.yml](../docker-compose.yml).
 
 **Reverse proxy and client IP:** The launcher is a proxy hop itself. It appends the peer address to
 `X-Forwarded-For`, passes through `X-Forwarded-Proto/-Host` of an outer proxy, and additionally tells the app what it
