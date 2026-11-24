@@ -39,7 +39,7 @@ Examples of what is in scope:
 
 Usually out of scope:
 
-- attacks that need admin rights or access to the host, the `data` folder or the Docker API that the operator granted,
+- attacks that need admin rights or access to the host, the data folder or volume, or the Docker API that the operator granted,
 - running without HTTPS or with a wrongly configured reverse proxy, against the documentation,
 - missing hardening without a practical attack, results of automated scanners without an explanation,
 - denial of service through large amounts of traffic, social engineering,

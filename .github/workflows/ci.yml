@@ -148,3 +148,27 @@ jobs:
           cat health.json; echo
           grep -q '"status":"ok"' health.json || { docker logs wishy-ci; exit 1; }
           docker rm -f wishy-ci
+
+      # The published docker-compose.yml must work as it is (no folder to prepare): start it with the image built
+      # above, write to the volume as the container user, and check that the data survives a new container.
+      - name: Start docker-compose.yml unchanged and check that data persists
+        shell: bash
+        env:
+          WISHY_IMAGE: wishy-ci:test
+        run: |
+          set -euo pipefail
+          trap 'docker compose logs wishy; docker compose down -v' EXIT
+          wait_healthy() {
+            for i in $(seq 1 60); do
+              if curl -fsS http://127.0.0.1:3000/healthz | grep -q '"status":"ok"'; then return 0; fi
+              sleep 1
+            done
+            return 1
+          }
+          docker compose up -d --pull never
+          wait_healthy
+          docker compose exec -T wishy sh -c 'test -s /data/wishlist.db && echo kept > /data/ci-marker'
+          docker compose down
+          docker compose up -d --pull never
+          wait_healthy
+          test "$(docker compose exec -T wishy cat /data/ci-marker)" = kept

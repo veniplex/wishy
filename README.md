@@ -54,14 +54,7 @@ in one container with one SQLite file. The interface is available in English and
 
 You need Docker with the Compose plugin.
 
-**1.** Create a folder with a `data` directory. The container runs as UID 1000:
-
-```bash
-mkdir wishy && cd wishy
-mkdir -p data && sudo chown 1000:1000 data
-```
-
-**2.** Save this as `docker-compose.yml` (the same as [the file in the repository](docker-compose.yml)). It works as it is;
+**1.** Save this as `docker-compose.yml` (the same as [the file in the repository](docker-compose.yml)). It works as it is;
 every available setting is listed as a comment:
 
 ```yaml
@@ -77,7 +70,9 @@ services:
     ports:
       - "3000:3000"                                 # host:container
     volumes:
-      - ./data:/data                                # database, images, keys, backups (must belong to UID 1000)
+      - wishy-data:/data                            # database, images, keys, backups; Docker creates the volume by itself
+      # Alternative, a folder next to this file. Create it first: mkdir data && sudo chown 1000:1000 data
+      # - ./data:/data
       # Docker API, only for updating the WHOLE image from within the app, option A (see the end of this file):
       # - /var/run/docker.sock:/var/run/docker.sock
     # group_add: ["999"]                            # option A: GID of the socket on the host (stat -c %g /var/run/docker.sock)
@@ -161,19 +156,43 @@ services:
 #      - -allowPOST=^/v1\.4[1-5]/(containers/create|containers/[a-zA-Z0-9_.-]+/(start|stop|rename)|images/create|networks/[a-zA-Z0-9_.-]+/connect)
 #      - -allowDELETE=^/v1\.4[1-5]/(containers/[a-zA-Z0-9_.-]+|images/[a-zA-Z0-9_.:@-]+)
 #      - -allowHEAD=^/_ping$
-#
+
+volumes:
+  wishy-data:
+    name: wishy-data                                # survives "docker compose down"; "down -v" DELETES it with all data
+
 #networks:
 #  docker-api:
 #    internal: true                                 # no internet, only Wishy <-> proxy
 ```
 
-**3.** Start it and open <http://localhost:3000> to create the administrator account:
+**2.** Start it and open <http://localhost:3000> to create the administrator account:
 
 ```bash
 docker compose up -d
 ```
 
-Your data lives in `./data`; back it up, including `secret.key`.
+That is all. Docker creates the volume `wishy-data` for the database, images, keys and backups; it survives updates and
+`docker compose down` (but not `down -v`).
+
+<details>
+<summary><b>Back up the data, or use a folder instead of a volume</b></summary>
+
+*Admin › Backups* creates scheduled backups, optionally encrypted, and lets you download them. To copy files out of the volume:
+
+```bash
+docker compose cp wishy:/data/backups ./wishy-backups
+docker compose cp wishy:/data/secret.key ./secret.key     # keep it safe, see "Security"
+```
+
+To keep the data in a folder next to the Compose file, create it for the container's user (UID 1000) and swap the two lines
+under `volumes:` in the service:
+
+```bash
+mkdir data && sudo chown 1000:1000 data
+```
+
+</details>
 
 <details>
 <summary><b>Pin a version</b></summary>
