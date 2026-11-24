@@ -1,5 +1,8 @@
 blank_issues_enabled: false
 contact_links:
-  - name: Report a vulnerability
+  - name: 🔒 Report a vulnerability
     url: https://github.com/veniplex/wishy/security/advisories/new
-    about: Please report privately
+    about: Please report security problems privately, never as an issue.
+  - name: 📖 Operations guide
+    url: https://github.com/veniplex/wishy/blob/main/docs/operations.md
+    about: Docker, reverse proxy, updates, backups, restore and offline use.

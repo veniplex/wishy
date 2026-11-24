@@ -1,0 +1,95 @@
+name: 🐞 Bug report
+description: Something does not work as expected
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time! Security problem? Please [report it privately](https://github.com/veniplex/wishy/security/advisories/new) instead.
+
+        Issues are public: remove passwords, tokens, `secret.key`, e-mail addresses and names from everything you post.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you start
+      options:
+        - label: I searched the existing issues and found no report of this problem.
+          required: true
+        - label: I use the latest version, or the problem also exists there.
+          required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you expect, and what happened instead? Screenshots help.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open …
+        2. Click …
+        3. …
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Wish lists and reserving
+        - People, ideas and gifts
+        - Occasions and calendar
+        - Budgets and cost sharing
+        - Spaces, members and permissions
+        - Sign-in, two-factor, passkeys, Google
+        - Offline use and sync
+        - Link import or AI features
+        - Administration, API
+        - Backups and restore
+        - Updates
+        - Docker, installation
+        - Something else
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Wishy version
+      description: See Admin › Updates or open /healthz
+      placeholder: "1.0.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: setup
+    attributes:
+      label: How do you run Wishy?
+      options:
+        - Docker Compose
+        - Docker, other (NAS, Portainer, Kubernetes …)
+        - npm start
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: access
+    attributes:
+      label: How do you open it?
+      options:
+        - HTTPS through a reverse proxy
+        - HTTP in the local network
+        - localhost
+        - Other
+  - type: input
+    id: client
+    attributes:
+      label: Browser and device
+      placeholder: Firefox on Windows 11, installed app on Android …
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Output of `docker compose logs wishy` or the browser console. It is formatted as code automatically.
+      render: shell

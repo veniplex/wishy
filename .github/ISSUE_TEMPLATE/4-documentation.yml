@@ -1,0 +1,21 @@
+name: 📝 Documentation or translation
+description: Something is missing, wrong or unclear in the docs or in the English or German texts
+labels: [documentation]
+body:
+  - type: input
+    id: where
+    attributes:
+      label: Where?
+      description: Link to the document, or the page of the app and its language
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What is wrong or missing?
+    validations:
+      required: true
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Suggested text
