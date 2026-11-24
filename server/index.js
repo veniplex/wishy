@@ -122,6 +122,44 @@ if (fs.existsSync(dist)) {
   // Hashed build files (/assets/<name>-<hash>.<ext>) never change: cache them for a year. The stable names (theme-init.js, public icons)
   // and the service worker (/sw.js, must be re-checked on every start) are revalidated.
   const HASHED_ASSET = /^\/assets\/.+-[A-Za-z0-9_-]{8}\.[a-z0-9]+$/
+  // Precompressed build files (<file>.br / <file>.gz, written by the build): chosen by Accept-Encoding. Without them (dev, old builds),
+  // for Range requests and for other files the normal static handler answers below.
+  const COMPRESSIBLE = /\.(?:js|mjs|css|svg|json|html|txt|webmanifest)$/
+  const precompressed = new Map() // file -> { br?: stat, gz?: stat } (stat of the compressed files; builds are static)
+  app.use((req, res, next) => {
+    if ((req.method !== 'GET' && req.method !== 'HEAD') || req.headers.range || !COMPRESSIBLE.test(req.path)) return next()
+    let rel
+    try { rel = decodeURIComponent(req.path) } catch { return next() }
+    const file = path.resolve(dist, '.' + rel)
+    if (!file.startsWith(dist + path.sep)) return next()
+    res.vary('Accept-Encoding')
+    const accepted = String(req.headers['accept-encoding'] || '').split(',').filter((x) => !/;\s*q=0(\.0*)?\s*$/.test(x)).map((x) => x.split(';')[0].trim().toLowerCase())
+    const enc = accepted.includes('br') ? 'br' : accepted.includes('gzip') ? 'gz' : null
+    if (!enc) return next()
+    let info = precompressed.get(file)
+    if (!info) {
+      info = {}
+      for (const e of ['br', 'gz']) {
+        try { const st = fs.statSync(`${file}.${e}`); if (st.isFile()) info[e] = st } catch { /* none */ }
+      }
+      if (info.br || info.gz) precompressed.set(file, info)
+    }
+    const use = info[enc] ? enc : null
+    if (!use) return next()
+    const st = info[use]
+    const etag = `W/"${st.size.toString(16)}-${Math.floor(st.mtimeMs).toString(16)}-${use}"`
+    res.set({ 'Content-Encoding': use === 'br' ? 'br' : 'gzip', ETag: etag, 'Content-Length': String(st.size), 'Last-Modified': st.mtime.toUTCString() })
+    const rel2 = '/' + path.relative(dist, file).split(path.sep).join('/')
+    const cache = rel2 === '/sw.js' ? 'no-cache' : HASHED_ASSET.test(rel2) ? 'public, max-age=31536000, immutable' : null
+    if (cache) res.setHeader('Cache-Control', cache)
+    if (req.fresh) return res.status(304).end()
+    res.type(path.extname(file)) // Content-Type of the original (the file read below has .br/.gz)
+    res.removeHeader('Content-Length')
+    res.sendFile(`${file}.${use}`, {
+      etag: false, lastModified: false,
+      cacheControl: false,
+    }, (err) => { if (err && !res.headersSent) next() })
+  })
   app.use(
     express.static(dist, {
       index: false,

@@ -90,11 +90,11 @@ export function TwoFactorPanel({ forced }: { forced?: boolean }) {
             <div className="font-medium flex items-center gap-2">{t('security.passkeys.title')} {status.passkeys > 0 ? <Badge tone="ok">{status.passkeys}</Badge> : null}</div>
             <p className="meta mt-0.5">{t('security.passkeys.text')}</p>
           </div>
-          {supported && <Button onClick={() => setAddPasskey(true)}>{t('security.passkeys.add')}</Button>}
+          {supported && <Button variant={status.passkeys === 0 ? 'primary' : 'secondary'} icon={Fingerprint} onClick={() => setAddPasskey(true)}>{t('security.passkeys.add')}</Button>}
         </div>
         {!supported && <p className="meta">{t('security.passkeys.unsupported')}</p>}
         {status.passkey_list.length === 0
-          ? (supported ? <p className="meta">{t('security.passkeys.empty')}</p> : null)
+          ? (supported ? <p className="meta">{t('security.passkeys.setupText')}</p> : null)
           : (
             <ul className="divide-y divide-line border-t border-line">
               {status.passkey_list.map((p) => (
@@ -102,7 +102,7 @@ export function TwoFactorPanel({ forced }: { forced?: boolean }) {
                   <div className="min-w-0 flex-1">
                     <div className="font-medium truncate">{p.name}</div>
                     <div className="meta">
-                      {[t('security.passkeys.addedOn', { when: fmtDateTime(p.created_at) }), p.last_used_at ? t('security.passkeys.lastUsed', { when: fmtDateTime(p.last_used_at) }) : t('security.passkeys.neverUsed'), p.backed_up ? t('security.passkeys.synced') : p.device_type === 'singleDevice' ? t('security.passkeys.deviceBound') : ''].filter(Boolean).join(' · ')}
+                      {[t('security.passkeys.addedOn', { when: fmtDateTime(p.created_at) }), p.last_used_at ? t('security.passkeys.lastUsed', { when: fmtDateTime(p.last_used_at) }) : t('security.passkeys.neverUsed'), p.backed_up ? t('security.passkeys.synced') : p.device_type === 'singleDevice' ? t('security.passkeys.deviceBound') : '', p.passwordless === true ? t('security.passkeys.passwordless') : p.passwordless === false ? t('security.passkeys.secondFactorOnly') : ''].filter(Boolean).join(' · ')}
                     </div>
                   </div>
                   <IconButton icon={Pencil} size="sm" label={t('security.passkeys.rename', { name: p.name })} onClick={() => setRename({ id: p.id, name: p.name })} />

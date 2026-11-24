@@ -16,7 +16,7 @@ const en: Record<keyof typeof de, string> = {
   'status': 'Status',
   'open': 'Open',
   'link': 'Link',
-  'linkPlaceholder': 'Paste a link – title, image and price are filled in for you',
+  'linkPlaceholder': 'Paste a link (optional)',
   'titlePlaceholder': 'e.g. Cast-iron teapot',
   'forWhom': 'For whom?',
   'price': 'Price',

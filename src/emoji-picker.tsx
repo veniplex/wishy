@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { X } from 'lucide-react'
-import { Popover } from './controls'
+import { Popover, isCoarse } from './controls'
 import { t, useLocale, type TKey } from './i18n'
 import { SearchField } from './ui'
 
@@ -55,7 +55,7 @@ function Panel({ onPick, value }: { onPick: (e: string) => void; value: string }
     <div className="flex flex-col min-h-0">
       <div className="px-3 pb-2 shrink-0">
         <SearchField
-          id="emoji-search" autoFocus type="search" autoComplete="off" enterKeyHint="search"
+          id="emoji-search" autoFocus={!isCoarse()} type="search" autoComplete="off" enterKeyHint="search"
           placeholder={t('controls.emoji.searchPlaceholder')} aria-label={t('controls.emoji.search')}
           value={q} onChange={(e) => setQ(e.target.value)}
           onKeyDown={(e) => {

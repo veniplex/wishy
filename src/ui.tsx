@@ -11,12 +11,13 @@
  * Loading:     Skeleton · PageSkeleton
  */
 import {
-  createContext, useCallback, useContext, useEffect, useRef, useState,
+  createContext, useCallback, useContext, useEffect, useRef, useState, useSyncExternalStore,
   type ButtonHTMLAttributes, type InputHTMLAttributes, type KeyboardEvent, type ReactNode,
 } from 'react'
-import { Link, NavLink, useLocation } from 'react-router-dom'
-import { Popover } from './controls'
-import { Check, ChevronRight as Crumb, CircleAlert, CircleCheck, ChevronDown, ChevronRight, Copy, Gift as GiftIcon, Search, X, type LucideIcon } from 'lucide-react'
+import { Link, NavLink, Navigate, useLocation } from 'react-router-dom'
+import { Popover, isCoarse } from './controls'
+import { useBackLayer } from './back-layer'
+import { Check, ChevronRight as Crumb, CircleAlert, CircleCheck, ChevronDown, ChevronLeft, ChevronRight, Copy, Gift as GiftIcon, Search, X, type LucideIcon } from 'lucide-react'
 import { type Person } from './lib'
 import { UserPictureOverlay } from './user-avatar'
 import { useStore } from './store'
@@ -194,9 +195,9 @@ export function Progress({ value, max, planned = 0, marker, tone, className }: {
 export function Banner({ tone = 'info', icon: Icon, action, flush, children }: { tone?: 'info' | 'warn' | 'bad' | 'ok'; icon?: LucideIcon; action?: ReactNode; flush?: boolean; children: ReactNode }) {
   const t = { info: 'bg-info-soft text-info border-info/30', warn: 'bg-warn-soft text-warn border-warn/30', bad: 'bg-bad-soft text-bad border-bad/30', ok: 'bg-ok-soft text-ok border-ok/30' }[tone]
   return (
-    <div role={tone === 'bad' ? 'alert' : 'status'} className={cx('flex items-center gap-2 text-sm px-5 py-3 border', t, flush ? 'border-x-0 border-t-0' : 'rounded-2xl')}>
+    <div role={tone === 'bad' ? 'alert' : 'status'} className={cx('flex flex-wrap items-center gap-x-2 gap-y-2 text-sm px-5 py-3 border', t, flush ? 'border-x-0 border-t-0' : 'rounded-2xl')}>
       {Icon && <Icon size={15} className="shrink-0" />}
-      <div className="flex-1 min-w-0">{children}</div>
+      <div className="flex-1 basis-48 min-w-0">{children}</div>
       {action}
     </div>
   )
@@ -227,6 +228,69 @@ export function PageSkeleton() {
       </div>
     </Page>
   )
+}
+
+/**
+ * Horizontally scrollable area with soft fade edges on the sides that have more content (mask, no layout shift).
+ * `scrollToEnd`: opens scrolled to the end (e.g. the newest month); applied again when `endKey` changes.
+ */
+export function ScrollFade({ children, className = '', scrollToEnd = false, endKey }: { children: ReactNode; className?: string; scrollToEnd?: boolean; endKey?: unknown }) {
+  const ref = useRef<HTMLDivElement>(null)
+  const [edge, setEdge] = useState({ l: false, r: false })
+  const update = () => {
+    const el = ref.current
+    if (!el) return
+    const l = el.scrollLeft > 2
+    const r = el.scrollLeft + el.clientWidth < el.scrollWidth - 2
+    setEdge((e) => (e.l === l && e.r === r ? e : { l, r }))
+  }
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    if (scrollToEnd) el.scrollLeft = el.scrollWidth
+    update()
+    const ro = new ResizeObserver(update)
+    ro.observe(el)
+    if (el.firstElementChild) ro.observe(el.firstElementChild)
+    return () => ro.disconnect()
+  }, [scrollToEnd, endKey])
+  const mask = edge.l || edge.r
+    ? `linear-gradient(to right, ${edge.l ? 'transparent 0, #000 28px' : '#000 0'}, ${edge.r ? '#000 calc(100% - 28px), transparent 100%' : '#000 100%'})`
+    : undefined
+  return (
+    <div ref={ref} className={`overflow-x-auto ${className}`} style={mask ? { maskImage: mask, WebkitMaskImage: mask } : undefined} onScroll={update}>
+      {children}
+    </div>
+  )
+}
+
+
+/** Desktop chrome (side menu, top navigation): width >= 768 px AND height >= 520 px, same as the Tailwind `md` variant (src/index.css) */
+const DESKTOP_QUERY = '(min-width: 48rem) and (min-height: 32.5rem)'
+export function useDesktopChrome() {
+  return useSyncExternalStore(
+    (cb) => { const m = window.matchMedia(DESKTOP_QUERY); m.addEventListener('change', cb); return () => m.removeEventListener('change', cb) },
+    () => window.matchMedia(DESKTOP_QUERY).matches,
+    () => true,
+  )
+}
+
+/** Visual viewport (iOS keyboard) as CSS variables --vvh/--vvt, only while at least one overlay uses them */
+let vvUsers = 0
+function trackViewport() {
+  const vv = window.visualViewport
+  const root = document.documentElement
+  const set = () => {
+    root.style.setProperty('--vvh', `${vv ? vv.height : window.innerHeight}px`)
+    root.style.setProperty('--vvt', `${vv ? vv.offsetTop : 0}px`)
+  }
+  if (!vvUsers++) { vv?.addEventListener('resize', set); vv?.addEventListener('scroll', set); window.addEventListener('resize', set) }
+  set()
+  return () => {
+    if (--vvUsers) return
+    vv?.removeEventListener('resize', set); vv?.removeEventListener('scroll', set); window.removeEventListener('resize', set)
+    root.style.removeProperty('--vvh'); root.style.removeProperty('--vvt')
+  }
 }
 
 // ───────────────────────────── Layout ─────────────────────────────
@@ -268,36 +332,52 @@ export function PillTabs<T extends string>({ value, onChange, items, label }: { 
 export interface SectionNavItem { to: string; label: ReactNode; icon?: LucideIcon; badge?: ReactNode }
 
 /**
- * Section navigation between DIFFERENT pages (settings, admin): a list on the left from tablet up, a horizontally
- * scrollable pill bar on phones. Content goes in `children`. Top tabs (PageHeader `tabs`/PillTabs) stay for views of the same content.
+ * Section navigation between DIFFERENT pages (settings, admin). Desktop (md): list on the left. Phones: list-then-detail:
+ * at the index URL a list of all sections (icon + label), inside a section a back link "‹ `rootLabel`" and the content.
+ * All URLs stay the same. The index route must use <SectionIndex>. Content goes in `children`.
  */
-export function SectionLayout({ label, items, children }: { label: string; items: SectionNavItem[]; children: ReactNode }) {
-  const nav = useRef<HTMLElement>(null)
+export function SectionLayout({ label, rootLabel, items, children }: { label: string; rootLabel?: string; items: SectionNavItem[]; children: ReactNode }) {
   const { pathname } = useLocation()
-  // Phone: keep the active section visible in the scrollable bar
-  useEffect(() => { nav.current?.querySelector('[aria-current="page"]')?.scrollIntoView({ inline: 'center', block: 'nearest' }) }, [pathname])
+  const inSection = items.some((s) => pathname === s.to || pathname.startsWith(`${s.to}/`))
+  const root = items[0]?.to.replace(/\/[^/]+$/, '') || '/'
   return (
     <div className="grid gap-4 md:gap-10 md:grid-cols-[13rem_minmax(0,1fr)] items-start">
-      <nav ref={nav} aria-label={label} className="flex md:flex-col gap-1 overflow-x-auto md:overflow-visible -mx-4 px-4 md:mx-0 md:px-0 pb-1 md:pb-0 md:sticky md:top-4 [scrollbar-width:none]">
+      <nav aria-label={label} className={cx('flex-col gap-1 md:flex md:sticky md:top-4 md:max-h-[calc(100dvh-2rem)] md:overflow-y-auto', inSection ? 'hidden' : 'flex')}>
         {items.map((s) => (
-          <NavLink key={s.to} to={s.to} className={({ isActive }) => cx('nav-link shrink-0', isActive && 'nav-link-on')}>
-            {s.icon && <s.icon size={18} strokeWidth={2} className="shrink-0" />} {s.label}
+          <NavLink key={s.to} to={s.to} className={({ isActive }) => cx('nav-link shrink-0 max-md:bg-card max-md:shadow-sm max-md:min-h-14', isActive && 'nav-link-on')}>
+            {s.icon && <s.icon size={18} strokeWidth={2} className="shrink-0" />} <span className="flex-1 min-w-0">{s.label}</span>
             {s.badge}
+            <ChevronRight size={16} className="md:hidden shrink-0 text-muted" aria-hidden />
           </NavLink>
         ))}
       </nav>
-      <div className="min-w-0">{children}</div>
+      <div className={cx('min-w-0', !inSection && 'max-md:hidden')}>
+        {inSection && (
+          <Link to={root} className="md:hidden inline-flex items-center gap-0.5 min-h-11 -mt-2 mb-2 text-sm font-medium text-muted hover:text-accent">
+            <ChevronLeft size={18} className="-ml-1" aria-hidden />{rootLabel ?? label}
+          </Link>
+        )}
+        {children}
+      </div>
     </div>
   )
 }
 
-/** Breadcrumbs "Gifting › Anna" */
+/** Index route of a section area: redirects to the first section on desktop; on phones it stays and shows the section list */
+export function SectionIndex({ to }: { to: string }) {
+  return useDesktopChrome() ? <Navigate to={to} replace /> : null
+}
+
+/** Breadcrumbs "Gifting › Anna"; on phones only "‹ Gifting" (the page title below already names the current page) */
 export function Crumbs({ back, current }: { back: { to: string; label: string }; current: string }) {
   return (
-    <nav aria-label={t('controls.ui.breadcrumbAria')} className="flex flex-wrap items-center gap-0.5 text-sm">
-      <Link to={back.to} className="inline-flex items-center min-h-9 text-muted hover:text-accent font-medium">{back.label}</Link>
-      <Crumb size={16} className="text-muted" aria-hidden />
-      <span aria-current="page" className="font-semibold px-1.5 truncate max-w-[60vw]">{current}</span>
+    <nav aria-label={t('controls.ui.breadcrumbAria')} className="flex items-center gap-0.5 text-sm min-w-0">
+      <Link to={back.to} className="inline-flex items-center gap-0.5 min-h-9 pointer-coarse:min-h-11 max-w-full text-muted hover:text-accent font-medium">
+        <ChevronLeft size={18} className="sm:hidden shrink-0 -ml-1" aria-hidden />
+        <span className="truncate">{back.label}</span>
+      </Link>
+      <Crumb size={16} className="text-muted max-sm:hidden shrink-0" aria-hidden />
+      <span aria-current="page" className="font-semibold px-1.5 truncate max-w-[60vw] max-sm:hidden">{current}</span>
     </nav>
   )
 }
@@ -331,7 +411,7 @@ export function PageHeader({ title, sub, actions, back, tabs, lead }: {
         <div className="flex items-center gap-4 min-w-0 flex-1 basis-60">
           {lead}
           <div className="min-w-0">
-            <h1 className="h1 text-balance break-words">{title}</h1>
+            <h1 className="h1 text-balance break-words max-sm:line-clamp-3">{title}</h1>
             {sub && <p className="text-muted mt-1 md:mt-2 text-sm md:text-base">{sub}</p>}
           </div>
         </div>
@@ -444,28 +524,29 @@ export function Row({ lead, title, titleSuffix, meta, extra, trailing, actions, 
   expanded?: boolean
 }) {
   const interactive = !!(to || onClick)
-  const tcls = cx('font-medium text-left block max-w-full max-sm:line-clamp-2 sm:truncate', dim && 'text-muted', strike && 'line-through', interactive && 'row-stretch hover:text-accent cursor-pointer')
+  // Narrow rows (phone, half column; container query on .row): the title gets the full width (2-3 lines), suffix/meta wrap
+  // instead of squeezing the title, trailing and actions go on their own lines below the text.
+  const tcls = cx('font-medium text-left block max-w-full @max-[34rem]:line-clamp-3 @min-[34rem]:truncate', dim && 'text-muted', strike && 'line-through', interactive && 'row-stretch hover:text-accent cursor-pointer')
   const titleEl = to
     ? <Link to={to} className={tcls}>{title}</Link>
     : onClick
       ? <button type="button" className={tcls} onClick={onClick} aria-expanded={expanded}>{title}</button>
       : <div className={tcls}>{title}</div>
   const indent = lead ? (dense ? 'pl-11' : 'pl-14') : ''
-  // Narrow rows (phone, half column): actions go on a second line below the text
-  const actionIndent = lead ? (dense ? '@max-[34rem]:pl-11' : '@max-[34rem]:pl-14') : ''
+  const narrowIndent = lead ? (dense ? '@max-[34rem]:pl-11' : '@max-[34rem]:pl-14') : ''
   return (
     <div className={cx('row', dense && 'row-dense', interactive && 'row-interactive')}>
       {lead && <div className={cx('shrink-0', dim && 'opacity-60')}>{lead}</div>}
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2 min-w-0">
-          <div className="min-w-0">{titleEl}</div>
-          {titleSuffix && <span className="row-above shrink-0 flex items-center gap-2">{titleSuffix}</span>}
+      <div className="min-w-[9ch] flex-1">
+        <div className="flex items-center gap-x-2 gap-y-0.5 min-w-0 @max-[34rem]:flex-wrap">
+          <div className="min-w-0 max-w-full @max-[34rem]:min-w-[9ch]">{titleEl}</div>
+          {titleSuffix && <span className="row-above shrink-0 flex flex-wrap items-center gap-2 max-w-full">{titleSuffix}</span>}
         </div>
-        {meta && <div className="meta truncate mt-0.5">{meta}</div>}
+        {meta && <div className="meta @min-[34rem]:truncate @max-[34rem]:line-clamp-2 mt-0.5">{meta}</div>}
         {extra && <div className="meta mt-0.5">{extra}</div>}
       </div>
-      {trailing && <div className="shrink-0 min-w-24 flex flex-col items-end gap-1 text-right text-sm">{trailing}</div>}
-      {actions && <div className={cx('row-above flex items-center gap-1 shrink-0 @max-[34rem]:basis-full', actionIndent)}>{actions}</div>}
+      {trailing && <div className={cx('shrink-0 min-w-24 flex flex-col items-end gap-1 text-right text-sm', '@max-[34rem]:basis-full @max-[34rem]:min-w-0 @max-[34rem]:shrink @max-[34rem]:flex-row @max-[34rem]:flex-wrap @max-[34rem]:items-center @max-[34rem]:justify-between @max-[34rem]:gap-x-3 @max-[34rem]:text-left', narrowIndent)}>{trailing}</div>}
+      {actions && <div className="row-above flex items-center gap-1 shrink-0 @max-[34rem]:basis-full @max-[34rem]:shrink @max-[34rem]:flex-wrap @max-[34rem]:gap-2">{actions}</div>}
       {below && <div className={cx('row-above basis-full', indent)}>{below}</div>}
     </div>
   )
@@ -480,7 +561,7 @@ export function DataTable({ columns, rows, foot, empty }: {
 }) {
   const align = (i: number) => (i === 0 ? 'text-left' : 'text-right')
   return (
-    <div className="card overflow-x-auto">
+    <ScrollFade className="card">
       <table className="w-full text-sm num">
         <thead>
           <tr className="meta border-b border-line">
@@ -499,7 +580,7 @@ export function DataTable({ columns, rows, foot, empty }: {
           </tfoot>
         )}
       </table>
-    </div>
+    </ScrollFade>
   )
 }
 
@@ -523,7 +604,7 @@ export function SearchField({ icon: Icon = Search, className, ...rest }: { icon?
   return (
     <span className={cx('relative block', className)}>
       <Icon size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted pointer-events-none" />
-      <input {...rest} className="input !pl-9" />
+      <input type="search" enterKeyHint="search" autoComplete="off" {...rest} className="input !pl-9" />
     </span>
   )
 }
@@ -574,21 +655,31 @@ const modalStack: symbol[] = []
 const FOCUSABLE = 'a[href],button:not([disabled]),input:not([disabled]):not([type=hidden]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])'
 
 /**
- * Dialog: full screen on phones, centered from `sm`. Escape closes only the topmost dialog, Tab stays inside the dialog,
- * focus is restored, the page behind does not scroll. `compact` = small, centered notice dialog.
+ * Dialog. Phones: bottom sheet with the height of its content (up to the visible height, scrolls inside beyond that); from `sm`
+ * centered. Escape and hardware/browser Back close only the topmost dialog, Tab stays inside the dialog, focus is restored, the page
+ * behind does not scroll (also on iOS), safe areas are respected and the size follows the on-screen keyboard (visualViewport).
+ * `compact` = small, centered notice dialog. Autofocus: `[data-autofocus]`, otherwise the first editable field - not on touch devices.
  */
 export function Modal({ title, onClose, children, footer, compact }: { title: string; onClose: () => void; children: ReactNode; footer?: ReactNode; compact?: boolean }) {
   const ref = useRef<HTMLDivElement>(null)
   const closeRef = useRef(onClose)
   closeRef.current = onClose
+  useBackLayer(() => closeRef.current())
   useEffect(() => {
     const id = Symbol('modal')
     modalStack.push(id)
     const el = ref.current!
     const prev = document.activeElement as HTMLElement | null
-    if (!el.contains(document.activeElement)) (el.querySelector<HTMLElement>('[data-autofocus],input,textarea,select') ?? el).focus()
+    if (!el.contains(document.activeElement)) {
+      const target = el.querySelector<HTMLElement>('[data-autofocus]') ?? (isCoarse() ? null : el.querySelector<HTMLElement>('input:not([readonly]):not([type=hidden]):not([type=checkbox]):not([type=radio]),textarea:not([readonly]),select'))
+      ;(target ?? el).focus({ preventScroll: true })
+    }
+    const root = document.documentElement
+    const wasLocked = root.classList.contains('scroll-locked')
     const prevOverflow = document.body.style.overflow
+    root.classList.add('scroll-locked')
     document.body.style.overflow = 'hidden'
+    const untrack = trackViewport()
     const onKey = (e: globalThis.KeyboardEvent) => {
       if (modalStack[modalStack.length - 1] !== id) return
       if (e.key === 'Escape') return closeRef.current()
@@ -603,13 +694,18 @@ export function Modal({ title, onClose, children, footer, compact }: { title: st
     return () => {
       window.removeEventListener('keydown', onKey)
       modalStack.splice(modalStack.indexOf(id), 1)
-      if (!modalStack.length) document.body.style.overflow = prevOverflow
-      if (prev && document.contains(prev)) prev.focus()
+      untrack()
+      if (!modalStack.length) {
+        if (!wasLocked) root.classList.remove('scroll-locked')
+        document.body.style.overflow = prevOverflow
+      }
+      if (prev && document.contains(prev)) prev.focus({ preventScroll: true })
     }
   }, [])
   return (
     <div
-      className={cx('fixed inset-0 z-50 bg-scrim backdrop-blur-[2px] flex justify-center overscroll-contain', compact ? 'items-center p-4' : 'items-end sm:items-center sm:p-6')}
+      className={cx('fixed inset-x-0 z-50 bg-scrim backdrop-blur-[2px] flex justify-center overscroll-contain touch-none pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]', compact ? 'items-center p-4' : 'items-end sm:items-center sm:p-6')}
+      style={{ top: 'var(--vvt, 0px)', height: 'var(--vvh, 100dvh)' }}
       onMouseDown={(e) => e.target === e.currentTarget && onClose()}
     >
       <div
@@ -618,13 +714,15 @@ export function Modal({ title, onClose, children, footer, compact }: { title: st
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className={cx('bg-card shadow-pop w-full flex flex-col outline-none', compact ? 'sm:max-w-sm max-h-[90dvh] rounded-[28px]' : 'sm:max-w-xl h-[100dvh] sm:h-auto sm:max-h-[min(90dvh,820px)] sm:rounded-[28px]')}
+        className={cx('bg-card shadow-pop w-full flex flex-col outline-none', compact
+          ? 'sm:max-w-sm max-h-full rounded-[28px]'
+          : 'sm:max-w-xl max-h-[calc(100%-env(safe-area-inset-top))] sm:max-h-[min(100%,820px)] rounded-t-[28px] sm:rounded-[28px]')}
       >
-        <div className="flex items-center justify-between gap-3 px-5 h-14 shrink-0 border-b border-line">
-          <h2 className="h2 truncate">{title}</h2>
-          <IconButton icon={X} label={t('controls.ui.close')} className="-mr-2" onClick={onClose} />
+        <div className="flex items-start justify-between gap-3 pl-5 pr-3 py-2 min-h-14 shrink-0 border-b border-line">
+          <h2 className="h2 line-clamp-2 break-words self-center py-1">{title}</h2>
+          <IconButton icon={X} label={t('controls.ui.close')} className="shrink-0 mt-0.5" onClick={onClose} />
         </div>
-        <div className="p-5 space-y-4 overflow-y-auto overscroll-contain flex-1 min-h-0">{children}</div>
+        <div className="p-5 space-y-4 overflow-y-auto overscroll-contain touch-pan-y flex-1 min-h-0">{children}</div>
         {footer && <div className="flex flex-nowrap items-center gap-2 px-5 py-3 shrink-0 border-t border-line sm:rounded-b-[28px] pb-[max(0.75rem,env(safe-area-inset-bottom))]">{footer}</div>}
       </div>
     </div>
@@ -707,11 +805,11 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   return (
     <ToastCtx.Provider value={toast}>
       {children}
-      <div className="fixed z-[60] inset-x-4 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] md:bottom-6 flex flex-col items-center gap-2 pointer-events-none">
+      <div className="fixed z-[60] left-[max(1rem,env(safe-area-inset-left))] right-[max(1rem,env(safe-area-inset-right))] bottom-[calc(5rem+env(safe-area-inset-bottom))] md:bottom-6 flex flex-col items-center gap-2 pointer-events-none">
         {toasts.map((item) => {
           const Icon = TOAST_ICON[item.tone]
           return (
-            <div key={item.id} role={item.tone === 'bad' ? 'alert' : 'status'} className="pointer-events-auto pop !overflow-visible flex items-start gap-2.5 px-4 py-3 text-sm max-w-md">
+            <div key={item.id} role={item.tone === 'bad' ? 'alert' : 'status'} className="pointer-events-auto pop !overflow-visible flex flex-row items-start gap-2.5 px-4 py-3 text-sm max-w-md">
               <Icon size={16} className={cx('shrink-0 mt-0.5', TOAST_TONE[item.tone])} />
               <span className="min-w-0 break-words">{item.message}</span>
               <IconButton icon={X} size="sm" label={t('controls.ui.close')} className="-my-1.5 -mr-2.5" onClick={() => dismiss(item.id)} />
@@ -724,7 +822,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 }
 
 /** Read-only field (link, redirect URI ...) with a copy button. */
-export function CopyField({ value, label, hint }: { value: string; label: string; hint?: string }) {
+export function CopyField({ value, label, hint, primary }: { value: string; label: string; hint?: string; primary?: boolean }) {
   const t = useT()
   const [copied, setCopied] = useState(false)
   const ref = useRef<HTMLInputElement>(null)
@@ -740,9 +838,9 @@ export function CopyField({ value, label, hint }: { value: string; label: string
   }
   return (
     <Field label={label} hint={hint} group>
-      <div className="flex gap-2">
-        <input ref={ref} readOnly aria-label={label} className="input flex-1 min-w-0" value={value} onFocus={(e) => e.currentTarget.select()} />
-        <Button icon={copied ? Check : Copy} onClick={copy}>{copied ? t('controls.ui.copied') : t('controls.ui.copy')}</Button>
+      <div className="flex flex-wrap gap-2">
+        <input ref={ref} readOnly aria-label={label} className="input flex-1 min-w-0 max-sm:basis-full" value={value} onFocus={(e) => e.currentTarget.select()} />
+        <Button icon={copied ? Check : Copy} variant={primary ? 'primary' : undefined} className="max-sm:w-full" onClick={copy}>{copied ? t('controls.ui.copied') : t('controls.ui.copy')}</Button>
       </div>
     </Field>
   )
@@ -751,7 +849,7 @@ export function CopyField({ value, label, hint }: { value: string; label: string
 /** Centered card for sign-in, invitation and other pages without navigation. `brand` = app name in the header. */
 export function CenteredCard({ brand, title, sub, children, footer }: { brand: string; title: string; sub?: ReactNode; children: ReactNode; footer?: ReactNode }) {
   return (
-    <div className="min-h-screen grid place-items-center px-4 py-10">
+    <div className="min-h-dvh grid place-items-center px-4 py-10">
       <div className="w-full max-w-sm space-y-6">
         <Brand name={brand} center large />
         <div className="card p-6 space-y-5">
@@ -793,6 +891,7 @@ export function Menu({ trigger, children, align = 'right', width = 288 }: {
   }, [])
   useEffect(() => {
     if (!open) return
+    if (isCoarse()) return // touch: no focus ring on the first entry
     const raf = requestAnimationFrame(() => pop.current?.querySelector<HTMLElement>('[role^="menuitem"]')?.focus({ preventScroll: true }))
     return () => cancelAnimationFrame(raf)
   }, [open])
@@ -810,8 +909,8 @@ export function Menu({ trigger, children, align = 'right', width = 288 }: {
     <div ref={anchor} className="relative">
       {trigger({ onClick: () => setOpen(!open), 'aria-haspopup': 'menu', 'aria-expanded': open })}
       {open && (
-        <Popover anchor={anchor} menu popRef={pop} width={width} align={align === 'right' ? 'end' : 'start'} maxH={560} onClose={(r) => close(r !== 'outside')}>
-          <div role="menu" className="flex flex-col gap-0.5" onKeyDown={onKey}>{children(() => close(false))}</div>
+        <Popover anchor={anchor} menu sheet popRef={pop} width={width} align={align === 'right' ? 'end' : 'start'} maxH={560} onClose={(r) => close(r !== 'outside')}>
+          <div role="menu" className="flex flex-col gap-0.5 [.pop-sheet_&]:p-2 [.pop-sheet_&]:overflow-y-auto" onKeyDown={onKey}>{children(() => close(false))}</div>
         </Popover>
       )}
     </div>

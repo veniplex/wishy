@@ -38,10 +38,12 @@ const en: Record<keyof typeof de, string> = {
   'diag.noHeaders': 'None',
   'diag.warnings': 'Notes',
   'diag.allGood': 'Nothing unusual.',
+  'diag.collapsedWarn_one': '{count} proxy detection notice',
+  'diag.collapsedWarn_other': '{count} proxy detection notices',
   'diag.sev.warning': 'Warning',
   'diag.sev.info': 'Note',
   'diag.sev.error': 'Error',
-  'diag.bypass': 'These paths must be reachable through the proxy without an upstream login',
+  'diag.bypass': 'These paths must be reachable through the proxy without an upstream login. That is all the public list page needs; reserving without an account uses them too.',
   'diag.failed': 'Could not load diagnostics.',
   'diag.w.forwarded_proto_untrusted': 'X-Forwarded-Proto is present but the proxy is not trusted: connections count as unencrypted and cookies get no “Secure” flag.',
   'diag.w.forwarded_for_untrusted': 'X-Forwarded-For is present but the proxy is not trusted: the proxy’s address is used as the client IP.',
@@ -62,5 +64,7 @@ const en: Record<keyof typeof de, string> = {
   'retention.aiHint': 'Values are rolled up per day first, so reports stay intact.',
   'retention.sessions': 'Expired sessions (days)',
   'retention.sessionsHint': 'Empty: server default.',
+  'retention.ip': 'IP addresses and devices (days)',
+  'retention.ipHint': 'After this, the IP address and device are removed from the audit log, reservations and guests; the entry stays. 0 = as long as the entry. Default: 90.',
 }
 export default en

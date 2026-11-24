@@ -21,12 +21,12 @@ export function AccountTab() {
     <>
       {err && <Banner tone="bad" icon={CircleAlert}>{err}</Banner>}
       <ProfileSection />
+      <OfflineSection />
       <EmailSection />
       <PasswordSection />
       <TwoFactorSection />
       <LoginMethodsSection />
       <SessionsSection />
-      <OfflineSection />
     </>
   )
 }

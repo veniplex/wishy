@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { useState, useSyncExternalStore, type ReactNode } from 'react'
 import { Check, ChevronDown, Gift as GiftIcon } from 'lucide-react'
 import { useOccasionTypes, useStore } from './store'
 import { rich } from './components'
@@ -9,6 +9,17 @@ import { Navigate } from 'react-router-dom'
 import { giveTabs } from './nav'
 import { t, useT, type TKey } from './i18n'
 import { CostSplit } from './split'
+import { ScrollFade } from './charts'
+
+/** Phones (< 640 px): the period table shows two columns, the breakdown moves under the period */
+const PHONE = '(max-width: 639px)'
+function usePhone() {
+  return useSyncExternalStore(
+    (cb) => { const m = window.matchMedia(PHONE); m.addEventListener('change', cb); return () => m.removeEventListener('change', cb) },
+    () => window.matchMedia(PHONE).matches,
+    () => false,
+  )
+}
 
 interface BarRow { key: string; lead: ReactNode; label: string; spent: number; planned: number; budget?: number | null; to?: string }
 
@@ -134,7 +145,7 @@ function Chart({ buckets }: { buckets: Bucket[] }) {
   const short = (n: number) => (n >= 10000 ? `${Math.round(n / 1000)}k` : String(Math.round(n)))
   return (
     <Card>
-      <div className="overflow-x-auto">
+      <ScrollFade scrollToEnd endKey={buckets.length}>
         <div className="flex items-end gap-1" style={{ minWidth: buckets.length * 48 }} onMouseLeave={() => setSel(null)}>
           {buckets.map((b) => {
             const total = b.spent + b.planned
@@ -154,7 +165,7 @@ function Chart({ buckets }: { buckets: Bucket[] }) {
             )
           })}
         </div>
-      </div>
+      </ScrollFade>
       <div className="meta mt-2 min-h-4 tabular-nums">
         {cur
           ? <><span className="font-medium text-ink">{cur.label}</span>: {t('finance.chart.detail', { spent: money(cur.spent), planned: money(cur.planned), count: cur.count })}</>
@@ -173,6 +184,7 @@ export function Finance() {
 function FinanceView() {
   const { s, me, person, money, giftDate, occasionTitle, call } = useStore()
   const occTypes = useOccasionTypes()
+  const phone = usePhone()
   const confirm = useConfirm()
   useT()
   const [period, setPeriodRaw] = useState<Period>(loadPeriod)
@@ -283,15 +295,27 @@ function FinanceView() {
 
       <Section title={t('finance.byPeriod.title')}>
         <Chart buckets={buckets} />
-        <DataTable
-          columns={[t('finance.col.period'), t('finance.col.spent'), t('finance.col.planned'), t('finance.col.sum'), t('finance.col.count')]}
-          rows={[...buckets].reverse().filter((b) => b.count > 0).map((b) => ({
-            key: b.key,
-            cells: [b.label, <Money n={b.spent} />, <Money n={b.planned} tone="muted" />, <Money n={b.spent + b.planned} strong />, b.count],
-          }))}
-          empty={t('finance.byPeriod.empty')}
-          foot={[t('finance.total'), <Money n={total.spent} />, <Money n={total.planned} />, <Money n={total.spent + total.planned} />, gifts.length]}
-        />
+        {phone ? (
+          <DataTable
+            columns={[t('finance.col.period'), t('finance.col.sum')]}
+            rows={[...buckets].reverse().filter((b) => b.count > 0).map((b) => ({
+              key: b.key,
+              cells: [<div className="max-w-[9rem]"><div className="font-medium">{b.label}</div><div className="meta">{t('finance.col.spent')} <Money n={b.spent} /> · {t('finance.col.planned')} <Money n={b.planned} /> · {b.count}</div></div>, <Money n={b.spent + b.planned} strong />],
+            }))}
+            empty={t('finance.byPeriod.empty')}
+            foot={[<div className="max-w-[9rem]"><div>{t('finance.total')}</div><div className="meta font-normal">{t('finance.col.spent')} <Money n={total.spent} /> · {t('finance.col.planned')} <Money n={total.planned} /> · {gifts.length}</div></div>, <Money n={total.spent + total.planned} />]}
+          />
+        ) : (
+          <DataTable
+            columns={[t('finance.col.period'), t('finance.col.spent'), t('finance.col.planned'), t('finance.col.sum'), t('finance.col.count')]}
+            rows={[...buckets].reverse().filter((b) => b.count > 0).map((b) => ({
+              key: b.key,
+              cells: [b.label, <Money n={b.spent} />, <Money n={b.planned} tone="muted" />, <Money n={b.spent + b.planned} strong />, b.count],
+            }))}
+            empty={t('finance.byPeriod.empty')}
+            foot={[t('finance.total'), <Money n={total.spent} />, <Money n={total.planned} />, <Money n={total.spent + total.planned} />, gifts.length]}
+          />
+        )}
       </Section>
 
       <Section title={t('finance.settle.title')}>

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { Info, Wrench, X } from 'lucide-react'
 import { useAuth } from './auth'
+import { publicToken } from './guest'
 import { t, useT, type TKey } from './i18n'
 import { Banner, Brand, Button, IconButton } from './ui'
 import { StepList, ProgressBar, type JobStep } from './update-parts'
@@ -151,6 +152,8 @@ function MaintenanceScreen({ initial }: { initial: MaintenanceInfo | null }) {
 export function MaintenanceHost() {
   const snap = useSyncExternalStore(subscribeMaintenance, getMaintenance)
   useEffect(() => {
+    // A public list page asks only /api/shared/...: behind a sign-in proxy /api/maintenance is not reachable for guests, and the list's own answer reports maintenance
+    if (publicToken()) return
     let alive = true
     getJson('/api/maintenance').then(({ data }) => { if (alive && data?.maintenance === true) reportMaintenance(data) }).catch(() => {})
     return () => { alive = false }

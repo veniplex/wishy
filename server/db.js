@@ -196,6 +196,7 @@ CREATE TABLE IF NOT EXISTS wishlists (
   archived INTEGER NOT NULL DEFAULT 0,
   share_token TEXT UNIQUE,
   link_enabled INTEGER NOT NULL DEFAULT 0,
+  guest_claims INTEGER NOT NULL DEFAULT 1, -- people without an account may reserve through the link (schema 4)
   sort INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
@@ -297,13 +298,31 @@ CREATE TABLE IF NOT EXISTS client_ops (
   PRIMARY KEY (user_id, op_id)
 );
 CREATE INDEX IF NOT EXISTS idx_client_ops_created ON client_ops(created_at);
+-- A guest of one wishlist (schema 4): created on demand (first claim, or when the guest saves the personal link), never by a plain visit.
+-- The code is public and not secret (admin views, logs, search); the guest key itself lives in the guest's browser and in the personal link
+-- fragment, only its sha256 is stored here.
+CREATE TABLE IF NOT EXISTS wishlist_guests (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  wishlist_id INTEGER NOT NULL REFERENCES wishlists(id) ON DELETE CASCADE,
+  code TEXT NOT NULL UNIQUE,
+  name TEXT NOT NULL,
+  key_hash TEXT NOT NULL UNIQUE,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  last_seen_at TEXT NOT NULL DEFAULT (datetime('now')),
+  ip TEXT, -- admin only, blanked by the IP retention
+  user_agent TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_wishlist_guests_list ON wishlist_guests(wishlist_id);
 CREATE TABLE IF NOT EXISTS reservations (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   wish_id INTEGER NOT NULL UNIQUE REFERENCES wishes(id) ON DELETE CASCADE,
   user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
   guest_name TEXT,
   gift_id INTEGER REFERENCES gifts(id) ON DELETE SET NULL,
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  guest_id INTEGER REFERENCES wishlist_guests(id) ON DELETE CASCADE, -- NULL = guest claim of 1.0/1.1 (identified by name) or a user's claim
+  ip TEXT, -- claimer's IP address and user agent: admin only, never in any other API/export/state (schema 4)
+  user_agent TEXT
 );
 
 -- Two-factor authentication (core in twofactor.js)
@@ -323,6 +342,7 @@ CREATE TABLE IF NOT EXISTS user_webauthn (
   transports TEXT,
   device_type TEXT,
   backed_up INTEGER NOT NULL DEFAULT 0,
+  passwordless INTEGER,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   last_used_at TEXT
 );
@@ -372,6 +392,7 @@ CREATE TABLE IF NOT EXISTS audit_log (
 CREATE INDEX IF NOT EXISTS idx_audit_at ON audit_log(at);
 CREATE INDEX IF NOT EXISTS idx_audit_actor ON audit_log(actor_user_id, id);
 CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_log(action, id);
+CREATE INDEX IF NOT EXISTS idx_audit_ip ON audit_log(ip, id);
 
 -- AI usage (ai/usage.js); the daily rollup is kept after old single rows are deleted (user_id 0 = unknown/deleted)
 CREATE TABLE IF NOT EXISTS ai_usage (

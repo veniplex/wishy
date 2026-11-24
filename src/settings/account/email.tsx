@@ -25,11 +25,11 @@ export function EmailSection() {
     <Section title={t('account.email.title')}>
       <form onSubmit={submit}>
         <Card className="space-y-4">
-          <div className="grid sm:grid-cols-2 gap-4">
-            <Field label={t('account.email.field')}><input className="input" type="email" required autoComplete="username" disabled={!hasPassword} value={email} onChange={(e) => setEmail(e.target.value)} /></Field>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Field label={t('account.email.field')}><input className="input" type="email" required autoComplete="email" enterKeyHint={!hasPassword || unchanged ? "done" : "next"} disabled={!hasPassword} value={email} onChange={(e) => setEmail(e.target.value)} /></Field>
             {hasPassword && !unchanged && (
               <Field label={t('account.email.currentPassword')} hint={t('account.email.currentPasswordHint')}>
-                <input className="input" type="password" required autoComplete="current-password" value={current} onChange={(e) => setCurrent(e.target.value)} />
+                <input className="input" type="password" required autoComplete="current-password" enterKeyHint="done" value={current} onChange={(e) => setCurrent(e.target.value)} />
               </Field>
             )}
           </div>

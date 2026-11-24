@@ -80,7 +80,7 @@ services:
 #     depends_on: [docker-proxy]
 #
 #  docker-proxy:
-#    image: wollomatic/socket-proxy:1.10.0
+#    image: wollomatic/socket-proxy:1.14.0
 #    restart: unless-stopped
 #    read_only: true
 #    cap_drop: [ALL]

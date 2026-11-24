@@ -1,6 +1,7 @@
 import type de from '../de/apiDocs'
 
 const en: Record<keyof typeof de, string> = {
+  'collapsedHint': 'How to call the API, endpoints, examples and the Shortcuts guide',
   'title': 'Documentation',
   'baseUrl': 'API base URL',
   'baseUrlHint': 'All endpoints are relative to this address.',

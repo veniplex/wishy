@@ -16,5 +16,18 @@ const en: Record<keyof typeof de, string> = {
   'off': 'Off',
   'aiOff': 'AI off',
   'apiOff': 'API off',
+  'lastActive': 'Last active {when}',
+  'lastIp': 'IP {ip}',
+  'sessions': 'Show sessions of {name}',
+  'sessionsTitle': 'Active sessions of {name}',
+  'sessionsEmpty': 'No active sessions.',
+  'sessionRevoke': 'Sign out',
+  'sessionRevokeAll': 'Sign out everywhere',
+  'sessionRevokeAllTitle': 'End all sessions?',
+  'sessionRevokeAllText': '{name} will be signed out everywhere.',
+  'sessionRevoked': 'Session ended',
+  'sessionCurrent': 'This session',
+  'sessionSeen': 'last active {when}',
+  'sessionSince': 'signed in {when}',
 }
 export default en

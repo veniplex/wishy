@@ -31,4 +31,9 @@ export default {
   'split.undistributed': 'Nicht verteilt',
   'split.overdistributed': 'Überverteilt',
   'split.receivedOn': 'erhalten am {date}',
+  'filter.button': 'Filter',
+  'filter.title': 'Geschenke filtern',
+  'filter.reset': 'Zurücksetzen',
+  'filter.apply_one': '{count} anzeigen',
+  'filter.apply_other': '{count} anzeigen',
 } as const

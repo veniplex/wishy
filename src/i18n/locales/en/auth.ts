@@ -39,5 +39,12 @@ const en: Record<keyof typeof de, string> = {
   'invite.title': 'Invitation to “{space}”',
   'invite.subNamed': '{name} is inviting you to plan gifts together.',
   'invite.sub': 'You’ve been invited to plan gifts together.',
+  'passkey.button': 'Sign in with a passkey',
+  'passkey.hint': 'No password needed: use your fingerprint, face or device PIN.',
+  'passkey.waiting': 'Follow the prompt from your browser or device …',
+  'passkey.cancelled': 'Sign-in was cancelled. You can try again or sign in with email and password.',
+  'passkey.failed': 'Signing in with the passkey did not work. The passkey is unknown here or was removed. Sign in with email and password.',
+  'passkey.expired': 'The request has expired. Please try again.',
+  'passkey.tooMany': 'Too many attempts. Please wait a few minutes.',
 }
 export default en

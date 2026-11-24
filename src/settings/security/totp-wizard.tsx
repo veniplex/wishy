@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { api, errMsg } from '../../api'
 import type { TwoFactorStatus } from '../../account-types'
 import { t, useT } from '../../i18n'
+import { isCoarse } from '../../controls'
 import { Button, CopyField, Field, FormError, Modal } from '../../ui'
 import { isReauthCancelled } from './reauth'
 
@@ -53,10 +54,11 @@ export function TotpWizard({ run, onDone, onClose }: { run: <T>(fn: () => Promis
             <div className="flex justify-center">
               <img src={setup.qr_data_url} alt={t('security.wizard.qrAlt')} width={200} height={200} className="rounded-2xl border border-line bg-white p-2 size-[200px]" />
             </div>
+            {isCoarse() && <Button variant="primary" href={setup.otpauth_uri}>{t("security.wizard.openApp")}</Button>}
             <CopyField label={t('security.wizard.manual')} value={setup.secret} />
             <p className="text-sm">{t('security.wizard.step2')}</p>
             <Field label={t('security.wizard.code')} error={error}>
-              <input className="input font-mono text-lg tracking-[0.3em] sm:max-w-48" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9 ]*" maxLength={7} autoFocus required value={code} onChange={(e) => setCode(e.target.value)} />
+              <input className="input font-mono text-lg tracking-[0.3em] sm:max-w-48" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9 ]*" maxLength={7} enterKeyHint="done" autoFocus={!isCoarse()} required value={code} onChange={(e) => setCode(e.target.value)} />
             </Field>
           </>
         )}

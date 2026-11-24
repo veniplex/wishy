@@ -1,8 +1,9 @@
 import { type ReactNode } from 'react'
 import { Navigate, Outlet, Route } from 'react-router-dom'
-import { DatabaseBackup, KeyRound, LogIn, RefreshCw, ScrollText, Server, Settings2, Sparkles, Users, type LucideIcon } from 'lucide-react'
+import { RootRoutes } from '../lazy'
+import { DatabaseBackup, HandHeart, KeyRound, LogIn, RefreshCw, ScrollText, Server, Settings2, Sparkles, Users, type LucideIcon } from 'lucide-react'
 import { t, useT, type TKey } from '../i18n'
-import { Page, PageHeader, SectionLayout } from '../ui'
+import { Page, PageHeader, SectionIndex, SectionLayout } from '../ui'
 import { UpdateBanner, useUpdateAvailability } from '../update-banner'
 import { useReachable } from '../offline/hooks'
 import { NeedsConnection } from '../offline/ui'
@@ -13,6 +14,7 @@ import { AdminUsers } from './users'
 import { AdminAi } from './ai'
 import { AdminApi } from './api'
 import { AdminAudit } from './audit'
+import { AdminClaims } from './claims'
 import { AdminBackups } from './backups'
 import { AdminUpdates } from './updates'
 import { AdminSystem } from './system'
@@ -25,6 +27,7 @@ const SECTIONS: { path: string; label: TKey; icon: LucideIcon; element: ReactNod
   { path: 'ai', label: 'admin.nav.ai', icon: Sparkles, element: <AdminAi /> },
   { path: 'api', label: 'admin.nav.api', icon: KeyRound, element: <AdminApi /> },
   { path: 'audit', label: 'admin.nav.audit', icon: ScrollText, element: <AdminAudit /> },
+  { path: 'claims', label: 'admin.nav.claims', icon: HandHeart, element: <AdminClaims /> },
   { path: 'backups', label: 'admin.nav.backups', icon: DatabaseBackup, element: <AdminBackups /> },
   { path: 'updates', label: 'admin.nav.updates', icon: RefreshCw, element: <AdminUpdates /> },
   { path: 'system', label: 'admin.nav.system', icon: Server, element: <AdminSystem /> },
@@ -44,7 +47,7 @@ export function AdminLayout() {
       <Page>
         <PageHeader title={t('admin.title')} sub={t('admin.sub')} />
         <div className="empty:hidden mb-5"><UpdateBanner /></div>
-        <SectionLayout label={t('admin.nav.label')} items={items}>{reachable ? <Outlet /> : <NeedsConnection />}</SectionLayout>
+        <SectionLayout label={t('admin.nav.label')} rootLabel={t('admin.title')} items={items}>{reachable ? <Outlet /> : <NeedsConnection />}</SectionLayout>
       </Page>
     </AdminOnly>
   )
@@ -53,8 +56,13 @@ export function AdminLayout() {
 /** Routes under /admin (mounted in AppRoutes) */
 export const adminRoutes = (
   <Route path="/admin" element={<AdminLayout />}>
-    <Route index element={<Navigate to="/admin/general" replace />} />
+    <Route index element={<SectionIndex to="/admin/general" />} />
     {SECTIONS.map((s) => <Route key={s.path} path={s.path} element={s.element} />)}
     <Route path="*" element={<Navigate to="/admin/general" replace />} />
   </Route>
 )
+
+/** Lazy entry (App.tsx mounts it at /admin/*) */
+export function AdminRoutes() {
+  return <RootRoutes>{adminRoutes}</RootRoutes>
+}

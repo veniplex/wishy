@@ -45,10 +45,10 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Set up Node.js 24 with npm cache
+      - name: Set up Node.js 26 with npm cache
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 24
+          node-version: 26
           cache: npm
 
       # `npm ci` installs exactly what package-lock.json says (reproducible, fails on a stale lockfile).
@@ -82,6 +82,36 @@ jobs:
           PREVIEW_BROWSER: 'off'
         run: npm run test:smoke
 
+  # Compatibility with the previous Node LTS. The image runs Node 26, but an in-app update installs a new app
+  # archive into an older image that may still run Node 24 (`engines`: >=24), so the app must keep working there.
+  # Deliberately NOT a matrix of `test`: the required check must stay named exactly `test` (see header).
+  test-node-24:
+    name: test (Node 24)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js 24 with npm cache
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Run the smoke tests
+        env:
+          PREVIEW_BROWSER: 'off'
+        run: npm run test:smoke
+
   # Backup/update end-to-end test with a fake GitHub and a fake Docker API.
   # Long-running, so it is skipped on pull requests and runs on main (and manual runs) only.
   # Not a required check.
@@ -96,10 +126,10 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Set up Node.js 24 with npm cache
+      - name: Set up Node.js 26 with npm cache
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 24
+          node-version: 26
           cache: npm
 
       - name: Install dependencies

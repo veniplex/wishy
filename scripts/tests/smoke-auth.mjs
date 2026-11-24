@@ -398,7 +398,7 @@ await D.post('/api/account/reauth', { current_password: PW })
 // ---- WebAuthn (options; the full ceremony is not possible headless) ----
 r = await D.post('/api/account/2fa/webauthn/register-options', {})
 const o = r.data
-t('webauthn register-options well-formed', r.status === 200 && typeof o.challenge === 'string' && o.challenge.length >= 16 && o.rp?.id === '127.0.0.1' && o.rp?.name === 'Wishy' && o.user?.name === 'dora@example.com' && typeof o.user.id === 'string' && Array.isArray(o.pubKeyCredParams) && o.pubKeyCredParams.length >= 2 && o.authenticatorSelection?.userVerification === 'preferred' && Array.isArray(o.excludeCredentials) && o.attestation === 'none', o)
+t('webauthn register-options well-formed', r.status === 200 && typeof o.challenge === 'string' && o.challenge.length >= 16 && o.rp?.id === '127.0.0.1' && o.rp?.name === 'Wishy' && o.user?.name === 'dora@example.com' && typeof o.user.id === 'string' && Array.isArray(o.pubKeyCredParams) && o.pubKeyCredParams.length >= 2 && o.authenticatorSelection?.userVerification === 'required' && o.authenticatorSelection?.residentKey === 'required' && Array.isArray(o.excludeCredentials) && o.attestation === 'none', o)
 r = await D.post('/api/account/2fa/webauthn/register', { name: 'Key', response: { id: 'x', rawId: 'x', type: 'public-key', response: {}, clientExtensionResults: {} } })
 t('webauthn register with garbage -> 400 code', r.status === 400 && ['webauthn_failed', 'webauthn_challenge_expired'].includes(r.data.code), r)
 // Fake credential so that sign-in options are generated
@@ -832,6 +832,206 @@ await stop()
   raw2.close()
   await stop()
 }
+
+// ---- Run 4: passwordless sign-in with passkeys (software authenticator, real WebAuthn ceremony without a browser) ----
+await start({ TRUST_PROXY: '1' })
+{
+  const { SoftAuthenticator, b64u: b64 } = await import('./webauthn-soft.mjs')
+  const raw = dbRaw()
+  const ORIGIN = BASE
+  let ipn = 0
+  const nextIp = () => ({ 'X-Forwarded-For': `203.0.113.${++ipn}` })
+  const cnt = (sql, ...a) => raw.prepare(sql).get(...a).n
+  const AD = mk(); await loginAs(AD, 'admin@example.com')
+  await AD.put('/api/admin/settings/auth', { two_factor_policy: 'optional' })
+  r = await AD.post('/api/admin/users', { name: 'Pia', email: 'pia@example.com', password: PW })
+  t('PK admin creates a user', r.status === 200 || r.status === 201, r)
+  const piaId = raw.prepare("SELECT id FROM users WHERE email='pia@example.com'").get().id
+  const handle = `wishy-user-${piaId}`
+
+  // --- Registration: discoverable credential + user verification are required
+  const P = mk(); await loginAs(P, 'pia@example.com')
+  r = await P.post('/api/account/2fa/webauthn/register-options', {})
+  const ro = r.data
+  t('PK register options demand resident key + UV', r.status === 200 && ro.authenticatorSelection?.residentKey === 'required' && ro.authenticatorSelection?.requireResidentKey === true && ro.authenticatorSelection?.userVerification === 'required' && ro.extensions?.credProps === true, ro.authenticatorSelection)
+  const dev = new SoftAuthenticator()
+  r = await P.post('/api/account/2fa/webauthn/register', { name: 'Soft', response: dev.attest(ro, { origin: ORIGIN, uv: false }) })
+  t('PK registration without user verification is rejected', r.status === 400 && r.data.code === 'webauthn_failed', r)
+  r = await P.post('/api/account/2fa/webauthn/register-options', {})
+  r = await P.post('/api/account/2fa/webauthn/register', { name: 'Soft', response: dev.attest(r.data, { origin: 'https://evil.example' }) })
+  t('PK registration with wrong origin is rejected', r.status === 400 && r.data.code === 'webauthn_failed', r)
+  r = await P.post('/api/account/2fa/webauthn/register-options', {})
+  r = await P.post('/api/account/2fa/webauthn/register', { name: 'Soft', response: dev.attest(r.data, { origin: ORIGIN, rpId: 'evil.example' }) })
+  t('PK registration with wrong rpIdHash is rejected', r.status === 400 && r.data.code === 'webauthn_failed', r)
+  r = await P.post('/api/account/2fa/webauthn/register-options', {})
+  r = await P.post('/api/account/2fa/webauthn/register', { name: 'Soft', response: dev.attest(r.data, { origin: ORIGIN, rk: false }) })
+  t('PK credProps rk=false is rejected as not discoverable', r.status === 400 && r.data.code === 'webauthn_not_discoverable', r)
+  r = await P.post('/api/account/2fa/webauthn/register-options', {})
+  const regOpts = r.data
+  r = await P.post('/api/account/2fa/webauthn/register', { name: 'Soft', response: dev.attest(regOpts, { origin: ORIGIN }) })
+  t('PK registration ok, flagged passwordless, recovery codes issued', r.status === 200 && r.data.passkeys === 1 && r.data.passkey_list[0].passwordless === true && r.data.recovery_codes?.length === 10, r.data)
+  r = await P.post('/api/account/2fa/webauthn/register', { name: 'Soft', response: dev.attest(regOpts, { origin: ORIGIN }) })
+  t('PK registration challenge is single use', r.status === 400 && r.data.code === 'webauthn_challenge_expired', r)
+
+  // --- Options: well-formed, no enumeration, bound to the browser by a Strict cookie
+  const X = mk()
+  r = await X.post('/api/auth/passkey/options', {}, { headers: nextIp() })
+  const o1 = r.data
+  const ck = r.setCookie.find((c) => c.startsWith('wl_pk='))
+  t('PK options well-formed (no allowCredentials, UV required, rpId)', r.status === 200 && typeof o1.challenge === 'string' && o1.challenge.length >= 32 && o1.rpId === '127.0.0.1' && o1.userVerification === 'required' && !(o1.allowCredentials?.length) && o1.timeout > 0, o1)
+  t('PK challenge cookie is HttpOnly, SameSite=Strict, scoped, short-lived', !!ck && /HttpOnly/i.test(ck) && /SameSite=Strict/i.test(ck) && /Path=\/api\/auth\/passkey/i.test(ck) && /Max-Age=300/i.test(ck), ck)
+  r = await mk().post('/api/auth/passkey/options', { email: 'pia@example.com' }, { headers: nextIp() })
+  t('PK options carry nothing account specific (input ignored)', r.status === 200 && Object.keys(r.data).sort().join() === Object.keys(o1).sort().join() && !JSON.stringify(r.data).includes(dev.id) && !r.data.allowCredentials?.length, r.data)
+  const ckVal = decodeURIComponent(ck.split(';')[0].split('=')[1])
+
+  // --- Happy path: sign in with the passkey alone (no password, no second factor)
+  const ipOk = nextIp()
+  r = await X.post('/api/auth/passkey/verify', { response: dev.assert(o1, { origin: ORIGIN, userHandle: handle }) }, { headers: ipOk })
+  t('PK passwordless login ok (session, no 2FA step)', r.status === 200 && r.data.user?.email === 'pia@example.com' && !r.data.two_factor && !!X.cookies.wl_session, r)
+  t('PK challenge cookie is cleared after use', !X.cookies.wl_pk)
+  r = await X.get('/api/auth/me')
+  t('PK session works', r.status === 200 && r.data.user.email === 'pia@example.com')
+  const sess = raw.prepare('SELECT reauth_at, ip FROM sessions WHERE user_id=? ORDER BY created_at DESC LIMIT 1').get(piaId)
+  t('PK login counts as fresh (reauth_at) and records the IP', Date.now() - sess.reauth_at < 60_000 && sess.ip === ipOk['X-Forwarded-For'], sess)
+  const okRow = raw.prepare("SELECT * FROM audit_log WHERE action='auth.login' AND status='ok' AND details LIKE '%passkey%' ORDER BY id DESC LIMIT 1").get()
+  t('PK success is audited with method passkey and IP', okRow && JSON.parse(okRow.details).method === 'passkey' && okRow.ip === ipOk['X-Forwarded-For'] && okRow.actor_user_id === piaId, okRow)
+  const pkRow = raw.prepare('SELECT counter, last_used_at FROM user_webauthn WHERE id=?').get(dev.id)
+  t('PK counter and last use stored', pkRow.counter === dev.counter && !!pkRow.last_used_at, pkRow)
+
+  // --- Replay and binding
+  r = await mk().post('/api/auth/passkey/verify', { response: dev.assert(o1, { origin: ORIGIN, userHandle: handle, counter: false }) }, { headers: { ...nextIp(), Cookie: `wl_pk=${ckVal}` } })
+  t('PK replay of a used challenge is rejected', r.status === 400 && r.data.code === 'passkey_expired', r)
+  r = await mk().post('/api/auth/passkey/verify', { response: dev.assert(o1, { origin: ORIGIN, userHandle: handle }) }, { headers: nextIp() })
+  t('PK verify without the cookie is rejected', r.status === 400 && r.data.code === 'passkey_expired', r)
+  const Y = mk()
+  r = await Y.post('/api/auth/passkey/options', {}, { headers: nextIp() })
+  const oY = r.data
+  const cookieY = Y.cookies.wl_pk
+  r = await mk().post('/api/auth/passkey/verify', { response: dev.assert(oY, { origin: ORIGIN, userHandle: handle }) }, { headers: { ...nextIp(), Cookie: 'wl_pk=bogus' } })
+  t('PK a different challenge id does not work', r.status === 400 && r.data.code === 'passkey_expired', r)
+  // the first failed attempt consumed nothing of Y's challenge; Y can still sign in
+  Y.cookies.wl_pk = cookieY
+  r = await Y.post('/api/auth/passkey/verify', { response: dev.assert(oY, { origin: ORIGIN, userHandle: handle }) }, { headers: nextIp() })
+  t('PK second browser signs in with its own challenge', r.status === 200 && r.data.user?.email === 'pia@example.com', r)
+
+  // --- Uniform failure for every kind of defect (each from its own IP so that the limiter stays out of the way)
+  const attemptWith = async (mod, { ip = nextIp(), c = mk() } = {}) => {
+    const x = await c.post('/api/auth/passkey/options', {}, { headers: ip })
+    const resp = typeof mod === 'function' ? mod(x.data) : mod
+    return c.post('/api/auth/passkey/verify', { response: resp }, { headers: ip })
+  }
+  const failures = {
+    'missing user verification': (o) => dev.assert(o, { origin: ORIGIN, userHandle: handle, uv: false }),
+    'wrong user handle': (o) => dev.assert(o, { origin: ORIGIN, userHandle: 'wishy-user-' + (piaId + 1) }),
+    'no user handle': (o) => dev.assert(o, { origin: ORIGIN }),
+    'wrong origin': (o) => dev.assert(o, { origin: 'https://evil.example', userHandle: handle }),
+    'wrong rpIdHash': (o) => dev.assert(o, { origin: ORIGIN, userHandle: handle, rpId: 'evil.example' }),
+    'wrong challenge': (o) => dev.assert(o, { origin: ORIGIN, userHandle: handle, challenge: b64(Buffer.alloc(32, 7)) }),
+    'counter regression (cloned authenticator)': (o) => dev.assert(o, { origin: ORIGIN, userHandle: handle, counter: 1 }),
+    'unknown credential': (o) => dev.assert(o, { origin: ORIGIN, userHandle: handle, id: b64(Buffer.alloc(32, 9)) }),
+    'garbage': () => ({ id: 'x', rawId: 'x', type: 'public-key', response: {}, clientExtensionResults: {} }),
+    'not an object': () => 'nope',
+  }
+  const bodies = new Set()
+  for (const [name, mod] of Object.entries(failures)) {
+    r = await attemptWith(mod)
+    bodies.add(JSON.stringify(r.data))
+    t(`PK ${name} -> uniform passkey_login_failed`, r.status === 400 && r.data.code === 'passkey_login_failed', r)
+  }
+  t('PK all failure answers are byte-identical', bodies.size === 1, [...bodies])
+  const fails = cnt("SELECT COUNT(*) AS n FROM audit_log WHERE action='auth.login' AND status='fail' AND details LIKE '%passkey%'")
+  t('PK failures are audited with method passkey and IP', fails >= Object.keys(failures).length && cnt("SELECT COUNT(*) AS n FROM audit_log WHERE action='auth.login' AND status='fail' AND details LIKE '%passkey%' AND ip LIKE '203.0.113.%'") >= 9, fails)
+  r = await attemptWith((o) => dev.assert(o, { origin: ORIGIN, userHandle: handle }))
+  t('PK a failed attempt does not burn the credential (valid login still works)', r.status === 200 && r.data.user?.email === 'pia@example.com', r)
+
+  // timing: failure answers are padded (no oracle on unknown credential vs. bad signature)
+  const timeOf = async (mod) => { const c = mk(); const ip = nextIp(); const x = await c.post('/api/auth/passkey/options', {}, { headers: ip }); const s = Date.now(); await c.post('/api/auth/passkey/verify', { response: mod(x.data) }, { headers: ip }); return Date.now() - s }
+  const tUnknown = await timeOf(failures['unknown credential'])
+  const tBadSig = await timeOf(failures['wrong origin'])
+  t('PK failure timing is padded and similar', tUnknown >= 250 && tBadSig >= 250 && Math.abs(tUnknown - tBadSig) < 150, { tUnknown, tBadSig })
+
+  // --- Password sign-in is unchanged: still needs the second factor, the passkey (UV not required there) counts
+  const PW2 = mk()
+  r = await PW2.post('/api/auth/login', { email: 'pia@example.com', password: PW }, { headers: nextIp() })
+  t('PK password login still demands the second factor', !!r.data.two_factor?.ticket && r.data.two_factor.methods.includes('webauthn'), r.data)
+
+  // --- Re-authentication with the passkey
+  raw.prepare('UPDATE sessions SET reauth_at=1 WHERE user_id=?').run(piaId)
+  r = await X.post('/api/account/reauth', {})
+  t('PK reauth is required when the session is stale', r.status === 400 || r.status === 403, r.status)
+  r = await X.post('/api/account/reauth/passkey-options', {})
+  const rao = r.data
+  t('PK reauth options demand UV and list this user’s credentials', r.status === 200 && rao.userVerification === 'required' && rao.allowCredentials?.length === 1 && rao.allowCredentials[0].id === dev.id, rao)
+  r = await X.post('/api/account/reauth', { passkey: dev.assert(rao, { origin: ORIGIN, userHandle: handle, uv: false }) })
+  t('PK reauth without UV is rejected', r.status >= 400, r)
+  r = await X.post('/api/account/reauth/passkey-options', {})
+  const rao2 = r.data
+  const goodReauth = dev.assert(rao2, { origin: ORIGIN, userHandle: handle })
+  r = await X.post('/api/account/reauth', { passkey: goodReauth })
+  t('PK reauth with passkey ok', r.status === 200 && r.data.ok === true, r)
+  t('PK reauth marks the session fresh', Date.now() - raw.prepare('SELECT reauth_at FROM sessions WHERE id=?').get(X.cookies.wl_session)?.reauth_at < 60_000)
+  r = await X.post('/api/account/reauth', { passkey: goodReauth })
+  t('PK reauth challenge is single use', r.status === 400, r)
+  // a password-only user (no passkey) cannot use the passkey route
+  r = await AD.post('/api/account/reauth/passkey-options', {})
+  t('PK reauth options for a user without passkeys -> 400', r.status === 400 && r.data.code === 'webauthn_not_available', r)
+
+  // --- Second-factor-only security key: allowed for 2FA, never for passwordless sign-in
+  r = await X.post('/api/account/reauth', { current_password: PW })
+  r = await X.post('/api/account/2fa/webauthn/register-options', { second_factor_only: true })
+  const so = r.data
+  t('PK second-factor-only options relax resident key and UV', r.status === 200 && so.authenticatorSelection?.residentKey === 'discouraged' && so.authenticatorSelection?.userVerification === 'discouraged', so.authenticatorSelection)
+  const key2 = new SoftAuthenticator()
+  r = await X.post('/api/account/2fa/webauthn/register', { name: 'Old key', response: key2.attest(so, { origin: ORIGIN, uv: false, rk: false }) })
+  t('PK second-factor-only key registers without UV', r.status === 200 && r.data.passkeys === 2 && r.data.passkey_list.find((p) => p.name === 'Old key').passwordless === false, r.data)
+  r = await attemptWith((o) => key2.assert(o, { origin: ORIGIN, userHandle: handle }))
+  t('PK second-factor-only key cannot sign in passwordless (uniform failure)', r.status === 400 && r.data.code === 'passkey_login_failed', r)
+  const W = mk()
+  const ipW = nextIp()
+  r = await W.post('/api/auth/login', { email: 'pia@example.com', password: PW }, { headers: ipW })
+  const tk = r.data.two_factor.ticket
+  r = await W.post('/api/auth/2fa/webauthn-options', { ticket: tk }, { headers: ipW })
+  r = await W.post('/api/auth/2fa/verify', { ticket: tk, method: 'webauthn', assertion: key2.assert(r.data, { origin: ORIGIN, uv: false }) }, { headers: ipW })
+  t('PK second-factor-only key still works as second factor after the password', r.status === 200 && r.data.user?.email === 'pia@example.com', r)
+
+  // --- Legacy rows (passwordless NULL) keep working
+  raw.prepare('UPDATE user_webauthn SET passwordless=NULL WHERE id=?').run(dev.id)
+  r = await attemptWith((o) => dev.assert(o, { origin: ORIGIN, userHandle: handle }))
+  t('PK legacy passkey (unknown flag) works and is upgraded after UV login', r.status === 200 && raw.prepare('SELECT passwordless FROM user_webauthn WHERE id=?').get(dev.id).passwordless === 1, r)
+
+  // --- Disabled user: same answer as every other failure
+  raw.prepare('UPDATE users SET disabled=1 WHERE id=?').run(piaId)
+  r = await attemptWith((o) => dev.assert(o, { origin: ORIGIN, userHandle: handle }))
+  t('PK disabled user -> uniform failure', r.status === 400 && r.data.code === 'passkey_login_failed' && !r.data.message?.toLowerCase().includes('disabled'), r)
+  raw.prepare('UPDATE users SET disabled=0 WHERE id=?').run(piaId)
+
+  // --- Rate limit: failures per IP are counted (10 per IP+passkey, then 429), options of other IPs stay unaffected
+  const ipRl = { 'X-Forwarded-For': '198.51.100.200' }
+  let rl
+  for (let i = 0; i < 11; i++) rl = await attemptWith(() => ({ id: 'x', rawId: 'x', type: 'public-key', response: {}, clientExtensionResults: {} }), { ip: ipRl })
+  t('PK 10 failures from one IP lock passkey verify (429)', rl.status === 429 && rl.data.code === 'too_many_attempts' && !!rl.headers.get('retry-after'), rl)
+  r = await attemptWith((o) => dev.assert(o, { origin: ORIGIN, userHandle: handle }), { ip: ipRl })
+  t('PK the locked IP cannot sign in even with a valid passkey', r.status === 429, r.status)
+  r = await attemptWith((o) => dev.assert(o, { origin: ORIGIN, userHandle: handle }))
+  t('PK another IP is unaffected', r.status === 200, r.status)
+  r = await mk().get('/api/auth/me')
+  t('PK anonymous /me still 401', r.status === 401)
+
+  // --- CSRF guard stays active
+  r = await mk().raw('POST', '/api/auth/passkey/verify', { rawBody: '{}', ct: 'text/plain', headers: { Origin: 'https://evil.example' } })
+  t('PK csrf guard rejects foreign origin', r.status === 403, r)
+  r = await mk().post('/api/auth/passkey/options', {}, { headers: { Origin: 'https://evil.example' } })
+  t('PK csrf guard rejects options from a foreign origin', r.status === 403 && r.data.code === 'origin_mismatch', r)
+
+  // --- Removing the last passkey does not lock anyone out: the password (+ remaining factor) keeps working
+  r = await X.get('/api/account/2fa')
+  for (const p of r.data.passkey_list) { const d = await X.del('/api/account/2fa/webauthn/' + p.id, { current_password: PW }); t('PK remove passkey ' + p.name, d.status === 200, d) }
+  const Q2 = mk()
+  r = await Q2.post('/api/auth/login', { email: 'pia@example.com', password: PW }, { headers: nextIp() })
+  t('PK after removing all passkeys the password alone signs in again (no 2FA left)', r.status === 200 && r.data.user?.email === 'pia@example.com' && !r.data.two_factor, r)
+  raw.close()
+}
+await stop()
 
 for (const d of [DATA, DATA + '-mod']) { try { fs.rmSync(d, { recursive: true, force: true }) } catch {} }
 console.log(`\n${pass} passed, ${failc} failed`)

@@ -94,6 +94,8 @@ const en: Record<keyof typeof de, string> = {
   'unpricedBanner_other': 'Price missing: {count} requests could not be costed. Add the models’ prices above under “Prices & currency”.',
   'chart.requests': 'Requests',
   'chart.tokens': 'Tokens (input + output)',
+  'chart.moreCharts': 'Show more charts',
+  'chart.lessCharts': 'Show fewer charts',
   'chart.cost': 'Cost in {currency}',
   'chart.tokensNote': 'Sum of input and output tokens.',
   'chart.desc': 'Stacked bars for {from} to {to}. The values are also in the table below.',

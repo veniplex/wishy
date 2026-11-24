@@ -2,8 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { ChevronDown, Download, Eraser, Search } from 'lucide-react'
 import { api, download, errMsg, type AdminUser } from '../api'
 import { fmtDateTime, t, useT, type TKey } from '../i18n'
-import { Badge, Button, Card, DatePicker, EmptyState, Field, FormError, Section, Segmented, SearchField, Select, useConfirm, useToast } from '../ui'
-import { SectionHead } from './shared'
+import { Badge, Button, Card, DatePicker, EmptyState, Field, FormError, Section, Segmented, SearchField, Select, ToggleLink, useConfirm, useDesktopChrome, useToast } from '../ui'
+import { HiddenOwnBanner, IpButton, ProxyIpWarning, SectionHead } from './shared'
 
 interface AuditItem {
   id: number
@@ -23,11 +23,12 @@ interface AuditItem {
 }
 interface Retention {
   retention_audit_days: number
-  last_run: { at: string; audit_deleted: number; ai_rows_rolled_up: number; sessions_deleted: number; trigger: 'auto' | 'manual' } | null
+  retention_ip_days: number
+  last_run: { at: string; audit_deleted: number; ai_rows_rolled_up: number; sessions_deleted: number; ip_anonymised?: number; trigger: 'auto' | 'manual' } | null
   stats: { audit_rows: number; audit_oldest: string | null }
 }
-interface Filters { from: string; to: string; user: string; action: string; status: string; via: string; q: string }
-const EMPTY: Filters = { from: '', to: '', user: '', action: '', status: '', via: '', q: '' }
+interface Filters { from: string; to: string; user: string; action: string; status: string; via: string; ip: string; q: string }
+const EMPTY: Filters = { from: '', to: '', user: '', action: '', status: '', via: '', ip: '', q: '' }
 const PAGE = 50
 
 const lookup = (key: string): string | null => {
@@ -48,6 +49,7 @@ const query = (f: Filters) => {
   if (f.action) p.set('action', f.action)
   if (f.status) p.set('status', f.status)
   if (f.via) p.set('via', f.via)
+  if (f.ip.trim()) p.set('ip', f.ip.trim())
   if (f.q.trim()) p.set('q', f.q.trim())
   return p
 }
@@ -61,29 +63,34 @@ function Detail({ k, children }: { k: string; children: ReactNode }) {
   )
 }
 
-function Entry({ e, open, onToggle }: { e: AuditItem; open: boolean; onToggle: () => void }) {
+function Entry({ e, open, onToggle, onIp }: { e: AuditItem; open: boolean; onToggle: () => void; onIp: (ip: string) => void }) {
   const actor = e.actor_label ?? (e.via === 'system' ? t('audit.via.system') : t('audit.anonymous'))
   const target = [e.target_label, e.target_type && e.target_id ? `${e.target_type} #${e.target_id}` : (e.target_type ?? null)].filter(Boolean).join(' · ')
   return (
     <div>
-      <button type="button" aria-expanded={open} onClick={onToggle} className="w-full text-left px-4 py-3 flex items-start gap-3 hover:bg-hover focus-visible:bg-hover">
-        <div className="min-w-0 flex-1 grid gap-x-4 gap-y-0.5 sm:grid-cols-[9.5rem_minmax(0,1fr)_minmax(0,1fr)]">
+      <div className="flex flex-wrap items-start hover:bg-hover/60">
+      <button type="button" aria-expanded={open} onClick={onToggle} className="min-w-0 flex-1 basis-72 text-left pl-4 pr-2 py-3 flex items-start gap-3 hover:bg-hover focus-visible:bg-hover">
+        <ChevronDown size={16} className={`shrink-0 mt-0.5 text-muted transition-transform ${open ? '' : '-rotate-90'}`} aria-hidden />
+        <div className="min-w-0 flex-1 grid grid-cols-1 gap-x-4 gap-y-0.5 sm:grid-cols-[9.5rem_minmax(0,1fr)_minmax(0,1fr)]">
           <span className="meta num sm:pt-0.5">{fmtDateTime(e.at)}</span>
           <span className="min-w-0">
             <span className="font-medium block truncate" title={actionLabel(e.action)}>{actionLabel(e.action)}</span>
-            {actionLabel(e.action) !== e.action && <span className="meta block truncate font-mono text-xs">{e.action}</span>}
+            {actionLabel(e.action) !== e.action && <span className="meta block truncate font-mono text-xs max-sm:hidden">{e.action}</span>}
           </span>
           <span className="min-w-0 text-sm">
             <span className="block truncate">{actor}</span>
             {target && <span className="meta block truncate">{target}</span>}
           </span>
         </div>
-        <span className="shrink-0 flex items-center justify-end gap-2 pt-0.5 sm:w-52">
+      </button>
+      <div className="shrink-0 flex items-center justify-between sm:justify-end gap-x-3 gap-y-1 flex-wrap pl-11 pr-4 pb-1 sm:pl-2 sm:py-3 w-full sm:w-auto sm:min-w-[17rem]">
+        <IpButton ip={e.ip} onPick={onIp} />
+        <span className="flex items-center gap-2">
           {e.status === 'fail' && <Badge tone="bad">{t('audit.status.fail')}</Badge>}
           <Badge>{viaLabel(e.via)}</Badge>
-          <ChevronDown size={16} className={`text-muted transition-transform ${open ? 'rotate-180' : ''}`} aria-hidden />
         </span>
-      </button>
+      </div>
+      </div>
       {open && (
         <div className="px-4 pb-4 pt-1 bg-hover/40">
           <dl className="grid grid-cols-[7rem_minmax(0,1fr)] gap-x-4 gap-y-1.5">
@@ -129,7 +136,12 @@ export function AdminAudit() {
   const [total, setTotal] = useState<number | null>(null)
   const [ret, setRet] = useState<Retention | null>(null)
   const [cleaning, setCleaning] = useState(false)
+  const [levelStored, setLevelStored] = useState(true)
+  const [hidden, setHidden] = useState(0)
+  const [reveal, setReveal] = useState(false) // deliberate reveal of claim entries on the admin's own lists (not persisted)
   const seq = useRef(0)
+  const desktop = useDesktopChrome()
+  const [showFilters, setShowFilters] = useState(false)
 
   // Free text with a short debounce, all other filters apply immediately
   useEffect(() => {
@@ -137,35 +149,36 @@ export function AdminAudit() {
     return () => window.clearTimeout(h)
   }, [f, applied.q])
 
-  const fetchPage = useCallback(async (flt: Filters, cursor: number | null) => {
+  const fetchPage = useCallback(async (flt: Filters, cursor: number | null, rev: boolean) => {
     const id = ++seq.current
     setLoading(true)
     setError('')
     const p = query(flt)
+    if (rev) p.set('reveal_own', '1')
     p.set('limit', String(PAGE))
     if (cursor) p.set('cursor', String(cursor))
     try {
-      const r = await api<{ items: AuditItem[]; next_cursor: number | null }>('GET', `/api/admin/audit?${p}`)
+      const r = await api<{ items: AuditItem[]; next_cursor: number | null; hidden_own?: number }>('GET', `/api/admin/audit?${p}`)
       if (id !== seq.current) return
       setItems((prev) => (cursor ? [...prev, ...r.items] : r.items))
       setNext(r.next_cursor)
+      setHidden(r.hidden_own ?? 0)
     } catch (e) {
       if (id === seq.current) setError(errMsg(e))
     } finally {
       if (id === seq.current) setLoading(false)
     }
   }, [])
-  useEffect(() => { setOpen(null); void fetchPage(applied, null) }, [applied, fetchPage])
+  useEffect(() => { setOpen(null); void fetchPage(applied, null, reveal) }, [applied, reveal, fetchPage])
 
   const loadMeta = useCallback(() => {
-    api<string[]>('GET', '/api/admin/audit/actions').then(setActions).catch(() => {})
-    api<{ audit_level: 'security' | 'all'; total: number }>('GET', '/api/admin/audit/settings').then((s) => { setLevel(s.audit_level); setTotal(s.total) }).catch(() => {})
+    const rv = reveal ? '?reveal_own=1' : ''
+    api<string[]>('GET', `/api/admin/audit/actions${rv}`).then(setActions).catch(() => {})
+    api<{ audit_level: 'security' | 'all'; audit_level_stored?: boolean; total: number }>('GET', `/api/admin/audit/settings${rv}`).then((s) => { setLevel(s.audit_level); setLevelStored(s.audit_level_stored !== false); setTotal(s.total) }).catch(() => {})
     api<Retention>('GET', '/api/admin/retention').then(setRet).catch(() => {})
-  }, [])
-  useEffect(() => {
-    loadMeta()
-    api<AdminUser[]>('GET', '/api/admin/users').then(setUsers).catch(() => {})
-  }, [loadMeta])
+  }, [reveal])
+  useEffect(() => { loadMeta() }, [loadMeta])
+  useEffect(() => { api<AdminUser[]>('GET', '/api/admin/users').then(setUsers).catch(() => {}) }, [])
 
   const actionOptions = useMemo(() => {
     const groups = [...new Set(actions.map(groupOf))].sort((a, b) => groupLabel(a).localeCompare(groupLabel(b)))
@@ -182,6 +195,7 @@ export function AdminAudit() {
     setLevel(v)
     try {
       await api('PUT', '/api/admin/audit/settings', { audit_level: v })
+      setLevelStored(true)
       toast(t('admin.saved'), 'ok')
     } catch (e) {
       setLevel(prev)
@@ -190,6 +204,7 @@ export function AdminAudit() {
   }
   const doExport = async (format: 'csv' | 'json') => {
     const p = query(applied)
+    if (reveal) p.set('reveal_own', '1')
     p.set('format', format)
     try {
       await download(`/api/admin/audit/export?${p}`, `wishy-audit-${new Date().toISOString().slice(0, 10)}.${format}`)
@@ -201,11 +216,11 @@ export function AdminAudit() {
     if (!(await confirm({ title: t('audit.retention.confirmTitle'), text: t('audit.retention.confirmText'), confirmLabel: t('audit.retention.run') }))) return
     setCleaning(true)
     try {
-      const r = await api<Retention & { audit_deleted: number; ai_rows_rolled_up: number; sessions_deleted: number }>('POST', '/api/admin/retention/run')
+      const r = await api<Retention & { audit_deleted: number; ai_rows_rolled_up: number; sessions_deleted: number; ip_anonymised?: number }>('POST', '/api/admin/retention/run')
       setRet(r)
-      toast(t('audit.retention.done', { audit: r.audit_deleted, ai: r.ai_rows_rolled_up, sessions: r.sessions_deleted }), 'ok')
+      toast(t('audit.retention.done', { audit: r.audit_deleted, ip: r.ip_anonymised ?? 0, ai: r.ai_rows_rolled_up, sessions: r.sessions_deleted }), 'ok')
       loadMeta()
-      void fetchPage(applied, null)
+      void fetchPage(applied, null, reveal)
     } catch (e) {
       toast(errMsg(e), 'bad')
     } finally {
@@ -213,8 +228,16 @@ export function AdminAudit() {
     }
   }
 
+  const searchField = (
+    <Field label={t('audit.filter.search')} className="sm:col-span-2">
+      <SearchField icon={Search} type="search" enterKeyHint="search" autoComplete="off" placeholder={t('audit.filter.searchPlaceholder')} value={f.q} onChange={(e) => setF({ ...f, q: e.target.value })} />
+    </Field>
+  )
   const filtered = JSON.stringify(applied) !== JSON.stringify(EMPTY)
   const last = ret?.last_run
+  // Phones: search first, the other filters behind one "Filter (n)" toggle; desktop keeps the full grid
+  const activeFilters = (['from', 'to', 'user', 'action', 'status', 'via', 'ip'] as const).filter((k) => applied[k] !== '').length
+  const filtersOpen = desktop || showFilters
 
   return (
     <div className="flex flex-col gap-8">
@@ -225,9 +248,9 @@ export function AdminAudit() {
         </>
       } />
 
-      <Section title={t('audit.settings.title')}>
+      <Section title={t('audit.settings.title')} className="max-md:order-2">
         <Card className="space-y-5">
-          <Field label={t('audit.level.label')} group hint={level === 'all' ? t('audit.level.allHint') : t('audit.level.securityHint')}>
+          <Field label={t('audit.level.label')} group hint={(level === 'all' ? t('audit.level.allHint') : t('audit.level.securityHint')) + (levelStored ? '' : ' ' + t('audit.level.notChosen'))}>
             <Segmented label={t('audit.level.label')} value={level} onChange={setLvl} options={[{ value: 'security', label: t('audit.level.security') }, { value: 'all', label: t('audit.level.all') }]} />
           </Field>
           <div className="border-t border-line pt-4 flex flex-wrap items-center gap-x-6 gap-y-3">
@@ -236,6 +259,9 @@ export function AdminAudit() {
               <p className="meta mt-0.5">
                 {ret ? (ret.retention_audit_days > 0 ? t('audit.retention.keep', { days: ret.retention_audit_days }) : t('audit.retention.keepForever')) : '…'}
                 {total != null && ` · ${t('audit.retention.entries', { count: total })}`}
+              </p>
+              <p className="meta mt-0.5">
+                {ret ? (ret.retention_ip_days > 0 ? t('audit.retention.ip', { days: ret.retention_ip_days }) : t('audit.retention.ipForever')) : '…'}
               </p>
               <p className="meta mt-0.5">
                 {last
@@ -248,9 +274,13 @@ export function AdminAudit() {
         </Card>
       </Section>
 
-      <Section title={t('audit.entries')}>
+      <Section title={t('audit.entries')} className="max-md:order-1">
+        <ProxyIpWarning />
+        <HiddenOwnBanner hidden={hidden} revealed={reveal} onReveal={() => setReveal(true)} onHide={() => setReveal(false)} />
         <Card className="space-y-4">
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {!desktop && searchField}
+          {!desktop && <ToggleLink chevron on={showFilters} onToggle={() => setShowFilters(!showFilters)} labelOn={t('audit.filter.hide')} labelOff={activeFilters ? t('audit.filter.showActive', { count: activeFilters }) : t('audit.filter.show')} className="self-start" />}
+          {filtersOpen && <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <Field label={t('audit.filter.from')}><DatePicker value={f.from} max={f.to || undefined} onChange={(v) => setF({ ...f, from: v })} /></Field>
             <Field label={t('audit.filter.to')}><DatePicker value={f.to} min={f.from || undefined} onChange={(v) => setF({ ...f, to: v })} /></Field>
             <Field label={t('audit.filter.user')}>
@@ -265,10 +295,11 @@ export function AdminAudit() {
             <Field label={t('audit.filter.via')}>
               <Select value={f.via} onChange={(e) => setF({ ...f, via: e.target.value })} options={[{ value: '', label: t('audit.filter.any') }, ...(['session', 'api_key', 'system', 'anonymous'] as const).map((v) => ({ value: v, label: viaLabel(v) }))]} />
             </Field>
-            <Field label={t('audit.filter.search')} className="sm:col-span-2">
-              <SearchField icon={Search} type="search" placeholder={t('audit.filter.searchPlaceholder')} value={f.q} onChange={(e) => setF({ ...f, q: e.target.value })} />
+            <Field label={t('audit.filter.ip')}>
+              <input className="input font-mono text-sm" type="text" inputMode="text" enterKeyHint="search" autoComplete="off" autoCapitalize="none" spellCheck={false} placeholder={t('audit.filter.ipPlaceholder')} value={f.ip} onChange={(e) => setF({ ...f, ip: e.target.value })} />
             </Field>
-          </div>
+            {desktop && searchField}
+          </div>}
           {filtered && <div><Button variant="link" onClick={() => { setF(EMPTY); setApplied(EMPTY) }}>{t('audit.filter.reset')}</Button></div>}
         </Card>
 
@@ -277,13 +308,13 @@ export function AdminAudit() {
           <EmptyState icon={Search}>{filtered ? t('audit.emptyFiltered') : t('audit.empty')}</EmptyState>
         ) : (
           <div className={`card divide-y divide-line overflow-hidden transition-opacity ${loading && items.length ? 'opacity-70' : ''}`} aria-busy={loading}>
-            {items.map((e) => <Entry key={e.id} e={e} open={open === e.id} onToggle={() => setOpen(open === e.id ? null : e.id)} />)}
+            {items.map((e) => <Entry key={e.id} e={e} open={open === e.id} onToggle={() => setOpen(open === e.id ? null : e.id)} onIp={(ip) => { setF({ ...f, ip }); setApplied({ ...f, ip }) }} />)}
             {loading && !items.length && <div className="px-4 py-6 text-center text-muted text-sm">{t('admin.loading')}</div>}
           </div>
         )}
         <div className="flex items-center justify-between gap-3">
           <span className="meta">{t('audit.shown', { count: items.length })}</span>
-          {next != null && <Button onClick={() => void fetchPage(applied, next)} disabled={loading}>{t('audit.loadMore')}</Button>}
+          {next != null && <Button onClick={() => void fetchPage(applied, next, reveal)} disabled={loading}>{t('audit.loadMore')}</Button>}
         </div>
       </Section>
     </div>

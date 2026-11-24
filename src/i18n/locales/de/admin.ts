@@ -9,6 +9,7 @@ export default {
   'nav.ai': 'KI',
   'nav.api': 'API',
   'nav.audit': 'Audit-Log',
+  'nav.claims': 'Reservierungen',
   'nav.backups': 'Backups',
   'nav.updates': 'Updates',
   'nav.system': 'System',
@@ -20,6 +21,8 @@ export default {
   'soon.updates': 'Hier siehst du, ob eine neue Version verfügbar ist, und aktualisierst Wishy.',
 
   'loading': 'Lade …',
+  'rowActions': 'Aktionen',
+  'unsaved': 'Ungespeicherte Änderungen',
   'saved': 'Gespeichert',
   'save': 'Speichern',
   'envLocked': 'Per Umgebungsvariable {name} festgelegt – hier nicht änderbar.',

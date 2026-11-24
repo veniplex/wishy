@@ -3,7 +3,7 @@ import { ArrowDown, ArrowUp, Download } from 'lucide-react'
 import { api, download, errMsg } from '../api'
 import { ChartCard, Legend, StackedBars, compactNumber, makeBuckets, type ChartSeries } from '../charts'
 import { fmtNumber, intlLocale, t, useT } from '../i18n'
-import { Banner, Button, DatePicker, FormError, Progress, Section, Segmented, Select, Stat, useToast } from '../ui'
+import { Banner, Button, Card, DatePicker, FormError, Progress, Section, Segmented, Select, Stat, ToggleLink, useDesktopChrome, useToast } from '../ui'
 
 interface Sum {
   requests: number
@@ -77,6 +77,8 @@ export function AiUsageAnalytics() {
   const [busy, setBusy] = useState(false)
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: 'cost', dir: -1 })
   const seq = useRef(0)
+  const desktop = useDesktopChrome()
+  const [moreCharts, setMoreCharts] = useState(false)
 
   const choose = (p: Preset) => {
     setPreset(p)
@@ -224,16 +226,37 @@ export function AiUsageAnalytics() {
         <ChartCard title={t('aiUsage.chart.requests')} legend={<Legend series={series} />} table={tableOf('requests', fReq)}>
           <StackedBars title={t('aiUsage.chart.requests')} desc={t('aiUsage.chart.desc', { from: range.from, to: range.to })} buckets={buckets} series={series} value={val('requests')} fmt={fReq} axisFmt={compactNumber} busy={busy} />
         </ChartCard>
-        <ChartCard title={t('aiUsage.chart.tokens')} sub={tokenSeriesNote} legend={<Legend series={series} />} table={tableOf('tokens', fReq)}>
+        {!desktop && <ToggleLink chevron on={moreCharts} onToggle={() => setMoreCharts(!moreCharts)} labelOn={t('aiUsage.chart.lessCharts')} labelOff={t('aiUsage.chart.moreCharts')} className="self-start" />}
+        {(desktop || moreCharts) && <ChartCard title={t('aiUsage.chart.tokens')} sub={tokenSeriesNote} legend={<Legend series={series} />} table={tableOf('tokens', fReq)}>
           <StackedBars title={t('aiUsage.chart.tokens')} desc={t('aiUsage.chart.desc', { from: range.from, to: range.to })} buckets={buckets} series={series} value={val('tokens')} fmt={fReq} axisFmt={compactNumber} busy={busy} />
-        </ChartCard>
+        </ChartCard>}
         <ChartCard title={t('aiUsage.chart.cost', { currency: cur })} legend={<Legend series={series} />} table={tableOf('cost', fCost)}>
           <StackedBars title={t('aiUsage.chart.cost', { currency: cur })} desc={t('aiUsage.chart.desc', { from: range.from, to: range.to })} buckets={buckets} series={series} value={val('cost')} fmt={fCost} axisFmt={(n) => fmtNumber(n, { maximumFractionDigits: n < 1 ? 3 : 2 })} busy={busy} />
         </ChartCard>
 
         <div className="space-y-2">
           <h3 className="h3">{t('aiUsage.users.title')}</h3>
-          <div className="card overflow-x-auto">
+          <div className="space-y-2 sm:hidden">
+            {sortedUsers.map(({ u, name, tokens, share }) => {
+              const lim = users?.limits.monthly_user_limit ?? null
+              const cap = users?.limits.monthly_cost_cap ?? null
+              return (
+                <Card key={String(u.user_id)} pad="sm" className="space-y-2">
+                  <div className="min-w-0"><div className="font-medium break-words">{name}</div>{u.email && u.name && <div className="meta break-all">{u.email}</div>}</div>
+                  <dl className="grid grid-cols-2 gap-x-3 gap-y-1 text-sm num">
+                    <div><dt className="meta">{t('aiUsage.users.requests')}</dt><dd>{fmtNumber(u.requests)}</dd></div>
+                    <div><dt className="meta">{t('aiUsage.users.cost')}</dt><dd>{fmtCost(u.cost, cur)}{u.unpriced_requests > 0 ? '*' : ''}</dd></div>
+                    <div><dt className="meta">{t('aiUsage.users.tokens')}</dt><dd>{compactNumber(tokens)}</dd></div>
+                    <div><dt className="meta">{t('aiUsage.users.share')}</dt><dd>{pct(share)}</dd></div>
+                  </dl>
+                  {lim != null && <div><div className="meta">{t('aiUsage.users.monthRequests', { used: u.month_requests, limit: lim })}</div><Progress value={u.month_requests} max={lim} /></div>}
+                  {cap != null && <div><div className="meta">{t('aiUsage.users.monthCost', { used: fmtCost(u.month_cost, cur), limit: fmtCost(cap, cur) })}</div><Progress value={u.month_cost} max={cap} /></div>}
+                </Card>
+              )
+            })}
+            {!sortedUsers.length && <p className="meta text-center">{t('aiUsage.users.empty')}</p>}
+          </div>
+          <div className="card overflow-x-auto max-sm:hidden">
             <table className="w-full text-sm num">
               <thead>
                 <tr className="meta border-b border-line">

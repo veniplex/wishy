@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useState } from 'react'
-import { KeyRound, Plus, Trash2, TriangleAlert } from 'lucide-react'
+import { ChevronRight, KeyRound, Plus, Trash2, TriangleAlert } from 'lucide-react'
 import { api, errMsg } from '../api'
 import { ApiDocs } from '../api-docs'
 import { useAuth } from '../auth'
-import { useFeatures } from '../features'
 import { fmtCost } from '../admin/ai-usage'
 import { fmtDate, fmtDateTime, fmtNumber, t, useT } from '../i18n'
+import { isCoarse } from '../controls'
 import { isReauthCancelled, useReauth } from './security/reauth'
-import { Badge, Banner, Button, Checkbox, CopyField, DatePicker, EmptyState, Field, FormError, IconButton, List, Modal, Progress, Row, Section, Select, Stat, useConfirm, useToast, type BadgeTone } from '../ui'
+import { Badge, Banner, Button, Checkbox, CopyField, DatePicker, EmptyState, Field, FormError, IconButton, List, Modal, Progress, Row, Section, Select, Stat, useConfirm, useDesktopChrome, useToast, type BadgeTone } from '../ui'
 
 export interface ApiKey {
   id: number
@@ -72,7 +72,7 @@ function CreateDialog({ onClose, onCreated }: { onClose: () => void; onCreated: 
     >
       <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); void submit() }}>
         <Field label={t('apiKeys.create.name')} hint={t('apiKeys.create.nameHint')}>
-          <input className="input" autoFocus data-autofocus="" maxLength={80} value={name} onChange={(e) => setName(e.target.value)} placeholder={t('apiKeys.create.namePlaceholder')} />
+          <input className="input" autoFocus={!isCoarse()} data-autofocus="" autoComplete="off" enterKeyHint="done" autoCapitalize="sentences" maxLength={80} value={name} onChange={(e) => setName(e.target.value)} placeholder={t('apiKeys.create.namePlaceholder')} />
         </Field>
         <Field label={t('apiKeys.create.scopes')} group hint={t('apiKeys.create.scopesHint')}>
           <div className="space-y-2 mt-1">
@@ -114,7 +114,7 @@ interface OwnUsage {
   limits: { monthly_user_limit: number | null; monthly_cost_cap: number | null }
 }
 /** Own AI usage this month (only if AI is enabled for the user) */
-function OwnAiUsage() {
+export function OwnAiUsage() {
   useT()
   const [u, setU] = useState<OwnUsage | null>(null)
   useEffect(() => {
@@ -143,7 +143,8 @@ export function ApiKeysTab() {
   useT()
   const toast = useToast()
   const confirm = useConfirm()
-  const f = useFeatures()
+  const desktop = useDesktopChrome()
+  const [docs, setDocs] = useState(desktop)
   const [keys, setKeys] = useState<ApiKey[] | null>(null)
   const [error, setError] = useState('')
   const [creating, setCreating] = useState(false)
@@ -186,9 +187,12 @@ export function ApiKeysTab() {
         )}
       </Section>
 
-      {f.ai && <OwnAiUsage />}
-
-      <ApiDocs />
+      {docs ? <ApiDocs /> : (
+        <button type="button" className="card w-full min-h-14 px-4 py-3 flex items-center gap-3 text-left" aria-expanded={false} onClick={() => setDocs(true)}>
+          <span className="flex-1 min-w-0"><span className="block font-semibold">{t("apiDocs.title")}</span><span className="block meta">{t("apiDocs.collapsedHint")}</span></span>
+          <ChevronRight size={16} className="shrink-0 text-muted" aria-hidden />
+        </button>
+      )}
 
       {creating && <CreateDialog onClose={() => setCreating(false)} onCreated={(s) => { setCreating(false); setSecret(s); void load() }} />}
       {secret && <SecretDialog secret={secret} onClose={() => setSecret(null)} />}

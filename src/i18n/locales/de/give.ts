@@ -99,4 +99,6 @@ export default {
   'detail.given': 'Verschenkt am',
   'detail.created': 'Angelegt am',
   'detail.paymentMethod': 'Zahlungsart',
+  'detail.notesMore': 'mehr',
+  'detail.notesLess': 'weniger',
 } as const

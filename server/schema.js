@@ -15,6 +15,7 @@
 //   1  initial schema (baseline)
 //   2  persons.photo_file (person photos)
 //   3  relationship types per space (persons.relationship = type key; relationship_group no longer used)
+//   4  guest claims: wishlists.guest_claims, wishlist_guests, reservations.guest_id/ip/user_agent
 import { createHash } from 'node:crypto'
 import { db, tx } from './db.js'
 import { migrateRelationshipTypes } from './relationship-core.js'
@@ -73,3 +74,35 @@ if (schemaVersion() < 3) {
     bumpSchema(3, 'relationship-types')
   })
 } else bumpSchema(3, 'relationship-types')
+
+
+// 4: guest claims. wishlists.guest_claims (owner setting, default on), reservations.ip / user_agent (admin only), the table
+// wishlist_guests (created by db.js) and reservations.guest_id: claims of guests belong to a guest of the list, identified by a key that
+// only the guest's browser (and the guest's personal link) holds. Claims of 1.0/1.1 keep guest_id NULL and are still identified by name.
+// Additive and guarded: a fresh database already has everything (db.js), a second run finds it. The guarded column step also runs on
+// databases that were already at 4 while 1.2.0 was in development.
+function ensureGuestColumns() {
+  const has = (table, col) => db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === col)
+  if (!has('wishlists', 'guest_claims')) db.exec('ALTER TABLE wishlists ADD COLUMN guest_claims INTEGER NOT NULL DEFAULT 1')
+  for (const c of ['ip', 'user_agent']) if (!has('reservations', c)) db.exec(`ALTER TABLE reservations ADD COLUMN ${c} TEXT`)
+  if (!has('reservations', 'guest_id')) db.exec('ALTER TABLE reservations ADD COLUMN guest_id INTEGER REFERENCES wishlist_guests(id) ON DELETE CASCADE')
+}
+if (schemaVersion() < 4) {
+  tx(() => {
+    ensureGuestColumns()
+    bumpSchema(4, 'guest-claims')
+  })
+} else {
+  tx(ensureGuestColumns)
+  bumpSchema(4, 'guest-claims')
+}
+
+// 5: passkeys for passwordless sign-in. user_webauthn.passwordless: 1 = registered as a discoverable credential with user verification
+// (usable for sign-in without a password), 0 = second factor only (security key without a resident key), NULL = unknown (registered
+// before this version; works as before). Additive and guarded; a fresh database already has the column (db.js).
+if (schemaVersion() < 5) {
+  tx(() => {
+    if (!db.prepare('PRAGMA table_info(user_webauthn)').all().some((c) => c.name === 'passwordless')) db.exec('ALTER TABLE user_webauthn ADD COLUMN passwordless INTEGER')
+    bumpSchema(5, 'passkey-login')
+  })
+} else bumpSchema(5, 'passkey-login')

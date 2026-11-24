@@ -80,6 +80,9 @@ const en: Record<keyof typeof de, string> = {
   'sessions.revoked': 'Session ended',
   'sessions.revokedOthers': 'Other sessions ended',
   'sessions.empty': 'No active sessions.',
+  'sessions.showOthers_one': 'Show {count} other device',
+  'sessions.showOthers_other': 'Show {count} other devices',
+  'sessions.hideOthers': 'Hide other devices',
   'sessions.unknown': 'Unknown device',
 }
 export default en

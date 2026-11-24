@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { ChevronLeft, ChevronRight, Plus } from 'lucide-react'
 import { useOccasionTypes, useStore } from './store'
 import { fmtDate, fmtIntl, intlLocale, t, useT } from './i18n'
+import { countdown, daysUntil } from './lib'
 import { dateInYear, isLeftOutBirthday, parseDate, type Occasion } from './lib'
 import { Button, IconButton, List, Row, Thumb } from './ui'
 import { Popover } from './controls'
@@ -104,10 +105,10 @@ function MoreButton({ date, items, hidden }: { date: string; items: CalOcc[]; hi
 
 /** Row for a projected occurrence: no gift stats, links to the occasion it repeats */
 function ProjectedRow({ o }: { o: CalOcc }) {
-  const { occasionTitle } = useStore()
+  const { s, occasionTitle } = useStore()
   const types = useOccasionTypes()
   return (
-    <Row to={`/calendar/${o.id}`} lead={<Thumb tone="accent" icon={occasionIconByName(types.of(o.type).icon)} />} title={occasionTitle(o, false)} meta={fmtDate(o.date, false)} />
+    <Row to={`/calendar/${o.id}`} lead={<Thumb tone="accent" icon={occasionIconByName(types.of(o.type).icon)} />} title={occasionTitle(o, false)} meta={`${fmtDate(o.date, false)} · ${countdown(daysUntil(o.date, s.today))}`} />
   )
 }
 
@@ -125,7 +126,9 @@ function MonthGrid({ month, byDate, today, onAdd }: { month: string; byDate: Map
   const weekdays = Array.from({ length: 7 }, (_, i) => new Date(2024, 0, 7 + ((wk + i) % 7)))
   const monthNo = first.getMonth()
   // Selection only counts inside the displayed month; on mobile default to today / the 1st
-  const sel = selected && selected.startsWith(month) ? selected : today.startsWith(month) ? today : `${month}-01`
+  // Without a choice: today, else the first day of the month that has an entry (not the empty 1st)
+  const firstWithItems = [...byDate.keys()].filter((k) => k.startsWith(month)).sort()[0]
+  const sel = selected && selected.startsWith(month) ? selected : today.startsWith(month) ? today : firstWithItems ?? `${month}-01`
   const selItems = byDate.get(sel) ?? []
 
   return (
@@ -160,10 +163,10 @@ function MonthGrid({ month, byDate, today, onAdd }: { month: string; byDate: Map
                   aria-selected={isSel}
                   aria-label={items.length ? t('calendar.view.dayAria', { date: long, count: items.length }) : long}
                   onClick={() => setSelected(key)}
-                  className={`${border} min-h-14 flex flex-col items-center gap-1 pt-1.5 pb-1 cursor-pointer ${inMonth ? '' : 'opacity-45'} ${isSel ? 'bg-soft' : 'hover:bg-hover'}`}
+                  className={`${border} min-h-12 flex flex-col items-center gap-0.5 pt-1 pb-1 cursor-pointer ${isSel ? 'bg-soft' : 'hover:bg-hover'}`}
                 >
                   {num}
-                  <span className="flex flex-wrap justify-center gap-0.5 px-1 h-3" aria-hidden>
+                  <span className={`flex flex-wrap justify-center gap-0.5 px-1 h-2 ${inMonth ? '' : 'opacity-60'}`} aria-hidden>
                     {items.slice(0, 3).map((o) => <span key={o.id} className={`size-1.5 rounded-full ${o.type === 'birthday' ? 'bg-info' : 'bg-accent'} ${isLeftOutBirthday(o) ? 'opacity-40' : ''}`} />)}
                   </span>
                 </button>
@@ -185,6 +188,13 @@ function MonthGrid({ month, byDate, today, onAdd }: { month: string; byDate: Map
           })}
         </div>
       </div>
+
+      {narrow && (
+        <p className="meta mt-2 flex flex-wrap items-center gap-x-4 gap-y-1" aria-hidden>
+          <span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-full bg-info" />{t('calendar.view.legendBirthday')}</span>
+          <span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-full bg-accent" />{t('calendar.view.legendOther')}</span>
+        </p>
+      )}
 
       {narrow && (
         <section className="mt-4" aria-live="polite" aria-label={t('calendar.view.dayListAria')}>
@@ -247,7 +257,7 @@ export function CalendarMonth() {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center gap-2">
-        <h2 className="h2 text-[22px] mr-auto" aria-live="polite">{title}</h2>
+        <h2 className="h2 text-lg sm:text-[22px] mr-auto whitespace-nowrap" aria-live="polite">{title}</h2>
         <Button size="sm" onClick={goToday} disabled={month === s.today.slice(0, 7)}>{t('calendar.view.today')}</Button>
         <IconButton icon={ChevronLeft} label={t('calendar.view.prev')} onClick={() => go(-1)} />
         <IconButton icon={ChevronRight} label={t('calendar.view.next')} onClick={() => go(1)} />

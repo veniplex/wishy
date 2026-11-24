@@ -5,6 +5,7 @@ import { api, ApiError, errMsg } from '../../api'
 import type { TwoFactorStatus } from '../../account-types'
 import { t, useT } from '../../i18n'
 import { Button, Field, FormError, Modal } from '../../ui'
+import { Checkbox, isCoarse } from '../../controls'
 import { isReauthCancelled } from './reauth'
 
 export const passkeysSupported = () => {
@@ -24,6 +25,7 @@ export function webauthnMessage(e: unknown): string {
 export function AddPasskeyDialog({ run, onDone, onClose }: { run: <T>(fn: () => Promise<T>) => Promise<T>; onDone: (s: TwoFactorStatus) => void; onClose: () => void }) {
   useT()
   const [name, setName] = useState(t('security.passkeys.nameDefault'))
+  const [secondOnly, setSecondOnly] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const submit = async (e: FormEvent) => {
@@ -32,12 +34,15 @@ export function AddPasskeyDialog({ run, onDone, onClose }: { run: <T>(fn: () => 
     setError('')
     try {
       // Adding requires a fresh confirmation ("Confirm it's you" dialog, if needed)
-      const optionsJSON = await run(() => api<PublicKeyCredentialCreationOptionsJSON>('POST', '/api/account/2fa/webauthn/register-options'))
+      const optionsJSON = await run(() => api<PublicKeyCredentialCreationOptionsJSON>('POST', '/api/account/2fa/webauthn/register-options', secondOnly ? { second_factor_only: true } : {}))
       const response = await startRegistration({ optionsJSON })
       onDone(await run(() => api<TwoFactorStatus>('POST', '/api/account/2fa/webauthn/register', { name: name.trim(), response })))
     } catch (err) {
       if (isReauthCancelled(err)) { setBusy(false); return }
-      setError(err instanceof ApiError ? err.message : webauthnMessage(err))
+      const base = err instanceof ApiError ? err.message : webauthnMessage(err)
+      const name = (err as { name?: string } | null)?.name
+      // A key that cannot store passkeys fails in the browser (NotSupportedError / constraint): point to the second-factor-only option
+      setError(!secondOnly && !(err instanceof ApiError) && name !== 'NotAllowedError' && name !== 'AbortError' && name !== 'InvalidStateError' ? `${base} ${t('security.passkeys.notDiscoverableHint')}` : base)
       setBusy(false)
     }
   }
@@ -50,8 +55,10 @@ export function AddPasskeyDialog({ run, onDone, onClose }: { run: <T>(fn: () => 
         footer={<><span className="flex-1" /><Button disabled={busy} onClick={onClose}>{t('common.cancel')}</Button><Button variant="primary" type="submit" disabled={busy || !name.trim()}>{t('security.passkeys.addAction')}</Button></>}
       >
         <Field label={t('security.passkeys.nameLabel')} hint={t('security.passkeys.nameHint')}>
-          <input className="input" maxLength={60} required autoFocus value={name} onChange={(e) => setName(e.target.value)} />
+          <input className="input" maxLength={60} required autoFocus={!isCoarse()} autoComplete="off" enterKeyHint="done" autoCapitalize="sentences" value={name} onChange={(e) => setName(e.target.value)} />
         </Field>
+        <p className="meta">{secondOnly ? t('security.passkeys.secondFactorOnlyHint') : t('security.passkeys.addHint')}</p>
+        <Checkbox checked={secondOnly} onChange={setSecondOnly} disabled={busy}>{t('security.passkeys.secondFactorOnlyLabel')}</Checkbox>
         {busy && <p className="text-sm text-muted" role="status">{t('security.passkeys.waiting')}</p>}
         <FormError>{error}</FormError>
       </Modal>
@@ -80,7 +87,7 @@ export function RenamePasskeyDialog({ id, name: initial, onDone, onClose }: { id
     <form onSubmit={submit}>
       <Modal compact title={t('security.passkeys.renameTitle')} onClose={onClose} footer={<><span className="flex-1" /><Button onClick={onClose}>{t('common.cancel')}</Button><Button variant="primary" type="submit" disabled={busy || !name.trim()}>{t('common.save')}</Button></>}>
         <Field label={t('security.passkeys.nameLabel')}>
-          <input className="input" maxLength={60} required autoFocus value={name} onChange={(e) => setName(e.target.value)} />
+          <input className="input" maxLength={60} required autoFocus={!isCoarse()} autoComplete="off" enterKeyHint="done" autoCapitalize="sentences" value={name} onChange={(e) => setName(e.target.value)} />
         </Field>
         <FormError>{error}</FormError>
       </Modal>

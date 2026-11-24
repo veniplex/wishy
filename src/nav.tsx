@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useSyncExternalStore } from 'react'
 import { Link, NavLink, useNavigate } from 'react-router-dom'
 import { CalendarDays, EyeOff, Sparkles, Gift, Heart, House, Lightbulb, LogOut, Monitor, Moon, Plus, Settings as SettingsIcon, ShieldCheck, Sun, type LucideIcon } from 'lucide-react'
 import { useStore } from './store'
@@ -48,7 +48,16 @@ function ProtectionDialog({ onClose }: { onClose: () => void }) {
 }
 
 /** Icon buttons of the header (tooltip + aria-label via IconButton); slightly smaller on smartphones */
-const BAR_BTN = 'icon-btn-surface max-sm:!size-10'
+const BAR_BTN = 'icon-btn-surface'
+
+/** Phone width (< 640 px): rarely used header buttons move into the account menu */
+function usePhone() {
+  return useSyncExternalStore(
+    (cb) => { const m = window.matchMedia('(max-width: 639px)'); m.addEventListener('change', cb); return () => m.removeEventListener('change', cb) },
+    () => window.matchMedia('(max-width: 639px)').matches,
+    () => false,
+  )
+}
 
 function PrivacyButton({ onClick }: { onClick: () => void }) {
   const { hidden } = useStore()
@@ -76,7 +85,7 @@ function NewMenu() {
   const aiImport = f.ai && (f.aiFeatures.text_import || f.aiFeatures.image_import)
   return (
     <Menu
-      trigger={(p) => <IconButton icon={Plus} label={t('nav.top.new')} aria-label={t('nav.top.newAria')} className="!bg-accent !text-accent-ink hover:brightness-110 shadow-accent max-sm:!size-10" {...p} />}
+      trigger={(p) => <IconButton icon={Plus} label={t('nav.top.new')} aria-label={t('nav.top.newAria')} className="!bg-accent !text-accent-ink hover:brightness-110 shadow-accent" {...p} />}
     >
       {(close) => (
         <>
@@ -96,6 +105,8 @@ function AvatarMenu() {
   const { version: updateVersion } = useUpdateAvailability()
   const { ops } = useOffline()
   const [asking, setAsking] = useState(false)
+  const phone = usePhone()
+  const [themeMode, , nextTheme] = useTheme()
   const signOut = async () => {
     await logout()
     rememberNext('/') // RequireAuth remembers the old page on sign-out – reset it after signing out
@@ -107,7 +118,7 @@ function AvatarMenu() {
     <Menu
       trigger={(p) => (
         <>
-          <button type="button" {...p} aria-label={t('nav.avatar.aria')} title={t('nav.avatar.aria')} className="relative overflow-hidden size-11 max-sm:size-10 rounded-full font-bold text-sm text-ink cursor-pointer hover:brightness-95 shrink-0" style={{ background: 'var(--t5)' }}>{initials}{user?.avatar_url ? <UserPictureOverlay userId={user.id} src={user.avatar_url} /> : null}</button>
+          <button type="button" {...p} aria-label={t('nav.avatar.aria')} title={t('nav.avatar.aria')} className="relative overflow-hidden size-11 rounded-full font-bold text-sm text-ink cursor-pointer hover:brightness-95 shrink-0" style={{ background: 'var(--t5)' }}>{initials}{user?.avatar_url ? <UserPictureOverlay userId={user.id} src={user.avatar_url} /> : null}</button>
           {updateVersion && <span aria-hidden className="absolute top-0 right-0 size-3 rounded-full bg-accent ring-2 ring-bg pointer-events-none" />}
         </>
       )}
@@ -118,6 +129,7 @@ function AvatarMenu() {
             <div className="font-semibold truncate">{user?.name}</div>
             <div className="meta truncate">{user?.email}</div>
           </div>
+          {phone && <MenuItem icon={THEME_ICON[themeMode]} tint={2} label={t('nav.top.themeHint', { mode: themeModes().find((m) => m.value === themeMode)!.label })} onClick={() => { close(); nextTheme() }} />}
           <MenuItem icon={SettingsIcon} tint={4} label={t('nav.avatar.settings')} to="/settings" onClick={close} />
           {user?.role === 'admin' && <MenuItem icon={ShieldCheck} tint={3} label={t('nav.avatar.admin')} hint={updateVersion ? t('update.menu.hint') : undefined} to="/admin" onClick={close} />}
           <MenuItem icon={LogOut} tint={1} label={t('nav.avatar.logout')} onClick={() => { close(); if (ops.length) setAsking(true); else void signOut() }} />
@@ -135,15 +147,15 @@ export function TopBar() {
   const { appName, sharedUnseen } = useAuth()
   const [prot, setProt] = useState(false)
   return (
-    <header className="mx-auto w-full max-w-[1120px] px-4 md:px-10 pt-3 md:pt-6 space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <Link to="/" aria-label={t('nav.brand.home', { appName })} className="min-w-0"><Brand name={appName} /></Link>
+    <header className="mx-auto w-full max-w-[1120px] px-4 md:px-10 pt-[calc(0.5rem+env(safe-area-inset-top))] md:pt-6 space-y-3">
+      <div className="flex items-center justify-between gap-2">
+        <Link to="/" aria-label={t('nav.brand.home', { appName })} className="min-w-0 shrink-0 inline-flex items-center justify-center min-h-11 min-w-11"><Brand name={appName} /></Link>
         <OfflineStatus />
-        <div className="flex items-center gap-1 sm:gap-2 min-w-0">
+        <div className="flex items-center gap-2 min-w-0 flex-1 justify-end">
           <SpaceButton />
           <NewMenu />
           <PrivacyButton onClick={() => setProt(true)} />
-          <ThemeButton />
+          <span className="max-sm:hidden contents"><ThemeButton /></span>
           <AvatarMenu />
         </div>
       </div>
@@ -165,7 +177,7 @@ export function BottomTabs() {
   useT()
   const { sharedUnseen } = useAuth()
   return (
-    <nav aria-label={t('nav.main.label')} className="md:hidden fixed z-30 bottom-0 inset-x-0 flex gap-1 px-2 pt-2 bg-card rounded-t-[26px] shadow-pop pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+    <nav aria-label={t('nav.main.label')} className="md:hidden fixed z-30 bottom-0 inset-x-0 flex gap-1 pl-[max(0.5rem,env(safe-area-inset-left))] pr-[max(0.5rem,env(safe-area-inset-right))] pt-2 bg-card rounded-t-[26px] shadow-pop pb-[max(0.5rem,env(safe-area-inset-bottom))]">
       {NAV.map((n) => (
         <NavLink key={n.to} to={n.to} end={n.end} className={({ isActive }) => `flex-1 min-w-0 flex flex-col items-center gap-0.5 py-1 text-xs font-semibold ${isActive ? 'text-accent' : 'text-muted'}`}>
           {({ isActive }) => (

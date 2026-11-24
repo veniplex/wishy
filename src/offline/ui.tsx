@@ -38,9 +38,9 @@ export function OfflineStatus() {
     <>
       <span role="status" aria-live="polite" className="sr-only">{st?.text}</span>
       {st && (
-        <button type="button" className={`pill sm:ml-auto max-sm:w-full max-sm:justify-center max-sm:min-h-10 max-sm:order-last ${st.warn ? '!bg-warn-soft !text-warn' : ''}`} aria-haspopup="dialog" onClick={() => setOpen(true)}>
+        <button type="button" title={st.text} aria-label={st.text} className={`pill shrink-0 sm:ml-auto max-sm:size-11 max-sm:!p-0 max-sm:justify-center ${st.warn ? '!bg-warn-soft !text-warn' : ''}`} aria-haspopup="dialog" onClick={() => setOpen(true)}>
           <st.icon size={16} strokeWidth={2.2} className={`shrink-0 ${st.spin ? 'animate-spin' : ''}`} />
-          <span className="truncate">{st.text}</span>
+          <span className="truncate max-sm:sr-only">{st.text}</span>
         </button>
       )}
       {open && <SyncDialog onClose={() => setOpen(false)} />}

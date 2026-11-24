@@ -4,7 +4,7 @@
  */
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { EyeOff, Lightbulb, MoreHorizontal, Plus, Users } from 'lucide-react'
+import { EyeOff, Gift as GiftIcon, Lightbulb, MoreHorizontal, Plus, Users } from 'lucide-react'
 import { useStore } from './store'
 import { t } from './i18n'
 import type { Gift, Occasion, Person } from './lib'
@@ -53,10 +53,23 @@ export function PlanBlock({ lead, title, to, meta, status, menu, dim, children, 
 export function PlanButtons({ personId, occasionId }: { personId: number; occasionId?: number }) {
   const { s, open } = useStore()
   if (!s.permissions.manage_gifts) return null
+  const gift = () => open({ type: 'gift', initial: { recipient_ids: [personId], occasion_id: occasionId } })
+  const idea = () => open({ type: 'item', initial: { person_id: personId, occasion_id: occasionId } })
   return (
     <>
-      <Button size="sm" icon={Plus} onClick={() => open({ type: 'gift', initial: { recipient_ids: [personId], occasion_id: occasionId } })}>{t('calendar.planGift')}</Button>
-      <Button size="sm" icon={Lightbulb} onClick={() => open({ type: 'item', initial: { person_id: personId, occasion_id: occasionId } })}>{t('give.detail.newIdea')}</Button>
+      {/* Phones: one "+" menu instead of two stacked buttons per block */}
+      <span className="sm:hidden">
+        <Menu width={224} align="left" trigger={(p) => <Button size="sm" icon={Plus} {...p}>{t('calendar.plan.add')}</Button>}>
+          {(close) => (
+            <>
+              <MenuItem icon={GiftIcon} tint={1} label={t('calendar.planGift')} onClick={() => { close(); gift() }} />
+              <MenuItem icon={Lightbulb} tint={3} label={t('give.detail.newIdea')} onClick={() => { close(); idea() }} />
+            </>
+          )}
+        </Menu>
+      </span>
+      <Button size="sm" icon={Plus} className="max-sm:hidden" onClick={gift}>{t('calendar.planGift')}</Button>
+      <Button size="sm" icon={Lightbulb} className="max-sm:hidden" onClick={idea}>{t('give.detail.newIdea')}</Button>
     </>
   )
 }

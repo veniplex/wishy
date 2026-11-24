@@ -215,21 +215,26 @@ export const fmtDateTime = (s: string) =>
 export const fmtIntl = (d: Date, opts: Intl.DateTimeFormatOptions) => d.toLocaleDateString(intlLocale(), opts)
 export const fmtNumber = (n: number, opts?: Intl.NumberFormatOptions) => n.toLocaleString(intlLocale(), opts)
 
-const moneyCache = new Map<string, Intl.NumberFormat>()
-/** Amount with currency (at most 2, at least 0 decimal places); unknown currency → number + code */
+const moneyCache = new Map<string, { whole: Intl.NumberFormat; frac: Intl.NumberFormat }>()
+/** Amount with currency: whole amounts without decimals, everything else always with the currency's decimals (at least 2: "79,90 €"); unknown currency → number + code */
 export function fmtMoney(n: number | null | undefined, currency = 'EUR'): string {
   if (n == null) return '–'
   const k = `${current}|${currency}`
   let f = moneyCache.get(k)
   if (!f) {
     try {
-      f = new Intl.NumberFormat(intlLocale(), { style: 'currency', currency, maximumFractionDigits: 2, minimumFractionDigits: 0 })
+      const base = new Intl.NumberFormat(intlLocale(), { style: 'currency', currency })
+      const dec = base.resolvedOptions().maximumFractionDigits ?? 2
+      f = {
+        whole: new Intl.NumberFormat(intlLocale(), { style: 'currency', currency, maximumFractionDigits: 0, minimumFractionDigits: 0 }),
+        frac: new Intl.NumberFormat(intlLocale(), { style: 'currency', currency, maximumFractionDigits: 2, minimumFractionDigits: dec === 0 ? 0 : 2 }),
+      }
     } catch {
       return `${fmtNumber(n, { maximumFractionDigits: 2 })} (${currency})`
     }
     moneyCache.set(k, f)
   }
-  return f.format(n)
+  return (Number.isInteger(n) ? f.whole : f.frac).format(n)
 }
 
 /** Distance in days (negative = past) as text: "today", "tomorrow", "in 5 days", "in 3 months" */

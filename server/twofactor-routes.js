@@ -57,12 +57,27 @@ export function assertSecondFactorCode(req, user, code) {
   noteCodeOk(user.id)
 }
 
-/** Requires a password or 2FA code in the request body; records the confirmation in the session (10 minutes). */
+/** Requires a password, 2FA code or passkey (user verification) in the request body; records the confirmation in the session (10 minutes). */
 async function confirmIdentity(req) {
   const b = req.body || {}
   const u = req.user
   if (b.current_password !== undefined && b.current_password !== '') {
     await assertCurrentPassword(u, b.current_password)
+    markFresh(req)
+    return true
+  }
+  if (b.passkey) {
+    // Re-confirmation with a passkey: challenge from POST /api/account/reauth/passkey-options, bound to this session
+    if (!req.sessionId || !passkeyCount(u.id)) throw bad('No security key is registered for this account', 'webauthn_not_available')
+    assertNotLocked(u.id)
+    try {
+      await verifyAssertion(req, u.id, `reauth:${req.sessionId}`, b.passkey, { requireUV: true })
+    } catch (e) {
+      noteCodeFail(u.id)
+      audit(req, 'auth.2fa.verify_fail', { target: { type: 'user', id: u.id }, status: 'fail', details: { context: 'confirm', method: 'webauthn' } })
+      throw e
+    }
+    noteCodeOk(u.id)
     markFresh(req)
     return true
   }
@@ -101,9 +116,9 @@ const statusPayload = (userId) => {
   return {
     ...s,
     passkey_list: db
-      .prepare('SELECT id, name, created_at, last_used_at, device_type, backed_up FROM user_webauthn WHERE user_id=? ORDER BY created_at')
+      .prepare('SELECT id, name, created_at, last_used_at, device_type, backed_up, passwordless FROM user_webauthn WHERE user_id=? ORDER BY created_at')
       .all(userId)
-      .map((p) => ({ ...p, backed_up: !!p.backed_up })),
+      .map((p) => ({ ...p, backed_up: !!p.backed_up, passwordless: p.passwordless === null ? null : !!p.passwordless })), // null = unknown (older passkey)
     policy: getSys('two_factor_policy') === 'required' ? 'required' : 'optional',
     must_setup: mustSetup2fa(userId),
   }
@@ -178,6 +193,12 @@ export function twoFactorRoutes(app) {
     res.json({ ok: true })
   })
 
+  app.post('/api/account/reauth/passkey-options', requireAuth, async (req, res) => {
+    if (!passkeyCount(req.user.id)) throw bad('No security key is registered for this account', 'webauthn_not_available')
+    assertNotLocked(req.user.id)
+    res.json(await authenticationOptions(req, req.user.id, `reauth:${req.sessionId}`, { requireUV: true }))
+  })
+
   // ---------- 2FA-Verwaltung ----------
   app.get('/api/account/2fa', requireAuth, (req, res) => res.json(statusPayload(req.user.id)))
 
@@ -229,7 +250,7 @@ export function twoFactorRoutes(app) {
   app.post('/api/account/2fa/webauthn/register-options', requireAuth, async (req, res) => {
     if (passkeyCount(req.user.id) >= MAX_PASSKEYS) throw bad('You have already reached the maximum number of security keys', 'passkey_limit')
     await requireConfirm(req)
-    res.json(await registrationOptions(req, req.user))
+    res.json(await registrationOptions(req, req.user, { secondFactorOnly: !!req.body?.second_factor_only }))
   })
 
   app.post('/api/account/2fa/webauthn/register', requireAuth, async (req, res) => {
@@ -241,12 +262,12 @@ export function twoFactorRoutes(app) {
     const c = await verifyRegistration(req, u, b.response ?? b.credential)
     if (db.prepare('SELECT 1 FROM user_webauthn WHERE id=?').get(c.id)) throw conflict('This security key is already registered', 'passkey_exists')
     db.prepare(
-      'INSERT INTO user_webauthn (id, user_id, name, public_key, counter, transports, device_type, backed_up) VALUES (?,?,?,?,?,?,?,?)',
-    ).run(c.id, u.id, name, c.publicKey, c.counter, c.transports, c.device_type, c.backed_up)
+      'INSERT INTO user_webauthn (id, user_id, name, public_key, counter, transports, device_type, backed_up, passwordless) VALUES (?,?,?,?,?,?,?,?,?)',
+    ).run(c.id, u.id, name, c.publicKey, c.counter, c.transports, c.device_type, c.backed_up, c.passwordless)
     const fresh = db.prepare('SELECT COUNT(*) AS n FROM user_recovery_codes WHERE user_id=?').get(u.id).n === 0
     const recovery_codes = fresh ? generateRecoveryCodes(u.id) : undefined
     revokeOthers(req)
-    audit(req, 'auth.2fa.passkey.add', { target: { type: 'user', id: u.id, label: u.email }, details: { name } })
+    audit(req, 'auth.2fa.passkey.add', { target: { type: 'user', id: u.id, label: u.email }, details: { name, passwordless: !!c.passwordless } })
     res.json({ ...statusPayload(u.id), ...(recovery_codes ? { recovery_codes } : {}) })
   })
 

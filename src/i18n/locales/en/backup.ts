@@ -52,6 +52,7 @@ const en: Record<keyof typeof de, string> = {
   'delete.done': 'Backup deleted',
   'upload.title': 'Upload backup',
   'upload.drop': 'Drop a backup file here or choose one',
+  'upload.choose': 'Choose a backup file',
   'upload.hint': 'Extension .wbk or .wbk.enc, up to {max} MB. The file is checked before it is accepted.',
   'upload.passphrase': 'Passphrase (encrypted files only)',
   'upload.passphraseHint': 'Leave empty if the stored passphrase applies. Without a matching passphrase the file is accepted as "not verified".',

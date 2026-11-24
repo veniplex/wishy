@@ -32,5 +32,10 @@ const en: Record<keyof typeof de, string> = {
   'split.undistributed': 'Not allocated',
   'split.overdistributed': 'Over-allocated',
   'split.receivedOn': 'received on {date}',
+  'filter.button': 'Filter',
+  'filter.title': 'Filter gifts',
+  'filter.reset': 'Reset',
+  'filter.apply_one': 'Show {count}',
+  'filter.apply_other': 'Show {count}',
 }
 export default en

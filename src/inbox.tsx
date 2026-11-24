@@ -27,7 +27,7 @@ function InboxRow({ i }: { i: Item }) {
     <Row
       dense
       title={i.title}
-      titleSuffix={i.url ? <a href={i.url} target="_blank" rel="noopener noreferrer" aria-label={t('inbox.openLink')} className="text-muted hover:text-accent"><ExternalLink size={14} /></a> : undefined}
+      titleSuffix={i.url ? <a href={i.url} target="_blank" rel="noopener noreferrer" aria-label={t('inbox.openLink')} className="hit pointer-coarse:!p-[0.95rem] pointer-coarse:!-m-[0.95rem] text-muted hover:text-accent"><ExternalLink size={14} /></a> : undefined}
       meta={meta}
       actions={
         <>
