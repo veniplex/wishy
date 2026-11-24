@@ -109,7 +109,7 @@ function SecretDialog({ secret, onClose }: { secret: string; onClose: () => void
   )
 }
 interface OwnUsage {
-  currency: { code: string; rate: number }
+  currency: { code: string }
   month: { month: string; requests: number; cost: number }
   limits: { monthly_user_limit: number | null; monthly_cost_cap: number | null }
 }
@@ -123,7 +123,6 @@ function OwnAiUsage() {
     api<OwnUsage>('GET', `/api/account/ai-usage?from=${from}&to=${now.toISOString().slice(0, 10)}`).then(setU).catch(() => {})
   }, [])
   if (!u) return null
-  const rate = u.currency.rate
   const { monthly_user_limit: lim, monthly_cost_cap: cap } = u.limits
   return (
     <Section title={t('apiKeys.ai.title')}>
@@ -131,7 +130,7 @@ function OwnAiUsage() {
         <Stat label={t('apiKeys.ai.requests')} value={fmtNumber(u.month.requests)} sub={lim != null ? t('apiKeys.ai.ofLimit', { limit: lim }) : t('apiKeys.ai.noLimit')}>
           {lim != null && <Progress value={u.month.requests} max={lim} />}
         </Stat>
-        <Stat label={t('apiKeys.ai.cost')} value={fmtCost(u.month.cost * rate, u.currency.code)} sub={cap != null ? t('apiKeys.ai.ofCap', { cap: fmtCost(cap * rate, u.currency.code) }) : t('apiKeys.ai.noLimit')}>
+        <Stat label={t('apiKeys.ai.cost')} value={fmtCost(u.month.cost, u.currency.code)} sub={cap != null ? t('apiKeys.ai.ofCap', { cap: fmtCost(cap, u.currency.code) }) : t('apiKeys.ai.noLimit')}>
           {cap != null && <Progress value={u.month.cost} max={cap} />}
         </Stat>
       </div>

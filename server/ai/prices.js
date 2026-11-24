@@ -1,4 +1,5 @@
-// Price table (setting ai_prices) and cost calculation. Prices in USD per 1M tokens.
+// Price table (setting ai_prices) and cost calculation. Prices are in USD per 1M tokens (as providers bill);
+// costs are computed and recorded in the tracking currency (settings ai_cost_currency / ai_cost_rate).
 import { getSys, setSys } from '../config.js'
 import { bad } from '../util.js'
 
@@ -61,19 +62,22 @@ export function priceFor(model, prices = getPrices()) {
   return best ? prices[best] : null
 }
 
-/** Cost in USD and the price snapshot used; cost is null if no price is configured. */
-export function computeCost(model, { input = 0, output = 0, cacheRead = 0, cacheWrite = 0 }, prices) {
+/** Tracking currency: costs are recorded in it. USD always has rate 1; otherwise the stored rate (1 USD = rate units), 1 if missing. */
+export function trackingCurrency() {
+  const code = String(getSys('ai_cost_currency') || 'USD').toUpperCase()
+  const rate = Number(getSys('ai_cost_rate'))
+  return { code, rate: code !== 'USD' && Number.isFinite(rate) && rate > 0 ? rate : 1 }
+}
+
+/** Cost in the tracking currency `cur` (USD price × rate) and the price snapshot used; cost is null if no price is configured. */
+export function computeCost(model, { input = 0, output = 0, cacheRead = 0, cacheWrite = 0 }, prices, cur = trackingCurrency()) {
   const p = priceFor(model, prices)
   if (!p) return { cost: null, snapshot: null }
   const cr = p.cache_read_per_mtok ?? p.input_per_mtok * 0.1
   const cw = p.cache_write_per_mtok ?? p.input_per_mtok * 1.25
-  const cost = (input * p.input_per_mtok + output * p.output_per_mtok + cacheRead * cr + cacheWrite * cw) / 1_000_000
-  return { cost, snapshot: { input_per_mtok: p.input_per_mtok, output_per_mtok: p.output_per_mtok, cache_read_per_mtok: cr, cache_write_per_mtok: cw } }
-}
-
-/** Display currency (conversion for display only; USD is always stored). */
-export function displayCurrency() {
-  const code = String(getSys('ai_cost_currency') || 'USD').toUpperCase()
-  const rate = Number(getSys('ai_cost_rate'))
-  return { code, rate: Number.isFinite(rate) && rate > 0 ? rate : 1 }
+  const usd = (input * p.input_per_mtok + output * p.output_per_mtok + cacheRead * cr + cacheWrite * cw) / 1_000_000
+  return {
+    cost: usd * cur.rate,
+    snapshot: { input_per_mtok: p.input_per_mtok, output_per_mtok: p.output_per_mtok, cache_read_per_mtok: cr, cache_write_per_mtok: cw, currency: cur.code, rate: cur.rate },
+  }
 }

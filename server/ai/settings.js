@@ -1,6 +1,8 @@
 import { getSys, setSys, getSecretSys, setSecretSys } from '../config.js'
 import { bad } from '../util.js'
-import { getPrices, validatePrices, displayCurrency } from './prices.js'
+import { tx } from '../db.js'
+import { getPrices, validatePrices, trackingCurrency } from './prices.js'
+import { reconcileCurrency } from './usage.js'
 
 export const MOCK = process.env.AI_TEST_MOCK === '1' // for automated tests only
 
@@ -74,10 +76,10 @@ export function adminView() {
     ai_features: c.features,
     ai_monthly_request_limit: c.limit,
     ai_monthly_user_limit: c.userLimit,
-    ai_monthly_cost_cap: c.costCap, // USD per user and month
-    ai_cost_currency: displayCurrency().code,
-    ai_cost_rate: displayCurrency().rate,
-    ai_prices: getPrices(), // { model: { input_per_mtok, output_per_mtok, cache_read_per_mtok?, cache_write_per_mtok? } } in USD
+    ai_monthly_cost_cap: c.costCap, // per user and month, in the tracking currency
+    ai_cost_currency: trackingCurrency().code, // costs are recorded in it
+    ai_cost_rate: trackingCurrency().rate, // 1 USD = ? ai_cost_currency (always 1 for USD)
+    ai_prices: getPrices(), // { model: { input_per_mtok, output_per_mtok, cache_read_per_mtok?, cache_write_per_mtok? } } in USD per 1M tokens
     env_locked: aiEnvLocked(),
     configured: !missingConfig(c),
     missing: missingConfig(c),
@@ -145,6 +147,15 @@ export function saveAdminSettings(b) {
     costCurrency = b.ai_cost_currency === null || b.ai_cost_currency === '' ? null : String(b.ai_cost_currency).trim().toUpperCase()
     if (costCurrency !== null && !/^[A-Z]{3,5}$/.test(costCurrency)) throw Object.assign(bad('Invalid currency'), { code: 'invalid_value' })
   }
+  // The currency the costs are tracked in after saving; anything but USD needs an exchange rate
+  const curNow = trackingCurrency()
+  const nextCode = costCurrency !== undefined ? costCurrency || 'USD' : curNow.code
+  if (nextCode !== 'USD' && (costCurrency !== undefined || costRate !== undefined)) {
+    // The stored rate belongs to the current currency: a different one needs its own
+    const stored = nextCode === curNow.code && Number(getSys('ai_cost_rate')) > 0 ? Number(getSys('ai_cost_rate')) : null
+    const rate = costRate !== undefined ? costRate : stored
+    if (rate === null) throw bad('Please enter an exchange rate for this currency', 'cost_rate_required', { currency: nextCode })
+  }
   const prices = b.ai_prices !== undefined ? validatePrices(b.ai_prices) : undefined
   let features
   if (b.ai_features !== undefined) {
@@ -177,16 +188,22 @@ export function saveAdminSettings(b) {
     if (m) throw bad(`AI cannot be enabled yet: ${m}`, 'ai_not_configured', { reasonCode: missingCode(next), detail: m })
   }
 
-  if (b.ai_enabled !== undefined) setSys('ai_enabled', b.ai_enabled)
-  if (provider !== undefined) put('ai_provider', provider)
-  if (has('ai_model')) put('ai_model', model || null)
-  if (apiKey !== undefined && !locked.has('ai_api_key')) setSecretSys('ai_api_key', apiKey)
-  if (has('ai_base_url')) put('ai_base_url', baseUrl || null)
-  if (features) setSys('ai_features', features)
-  if (b.ai_monthly_request_limit !== undefined) setSys('ai_monthly_request_limit', limit)
-  if (userLimit !== undefined) setSys('ai_monthly_user_limit', userLimit)
-  if (costCap !== undefined) setSys('ai_monthly_cost_cap', costCap)
-  if (costRate !== undefined) setSys('ai_cost_rate', costRate)
-  if (costCurrency !== undefined) setSys('ai_cost_currency', costCurrency)
-  if (prices !== undefined) setSys('ai_prices', prices)
+  tx(() => {
+    if (b.ai_enabled !== undefined) setSys('ai_enabled', b.ai_enabled)
+    if (provider !== undefined) put('ai_provider', provider)
+    if (has('ai_model')) put('ai_model', model || null)
+    if (apiKey !== undefined && !locked.has('ai_api_key')) setSecretSys('ai_api_key', apiKey)
+    if (has('ai_base_url')) put('ai_base_url', baseUrl || null)
+    if (features) setSys('ai_features', features)
+    if (b.ai_monthly_request_limit !== undefined) setSys('ai_monthly_request_limit', limit)
+    if (userLimit !== undefined) setSys('ai_monthly_user_limit', userLimit)
+    if (costCap !== undefined) setSys('ai_monthly_cost_cap', costCap)
+    if (nextCode === 'USD') {
+      if (costRate !== undefined || costCurrency !== undefined) setSys('ai_cost_rate', null) // USD is always 1; the next non-USD currency needs its own rate
+    } else if (costRate !== undefined) setSys('ai_cost_rate', costRate)
+    if (costCurrency !== undefined) setSys('ai_cost_currency', costCurrency)
+    if (prices !== undefined) setSys('ai_prices', prices)
+    // A changed currency converts the recorded costs (and the cap unless it was given in the new currency in this request)
+    reconcileCurrency({ convertCap: costCap === undefined })
+  })
 }

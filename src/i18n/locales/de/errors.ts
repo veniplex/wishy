@@ -215,6 +215,7 @@ export default {
   'code.ai_model_invalid': 'Ungültige Modell-ID',
   'code.ai_limit_invalid': 'Das Monatslimit muss eine ganze Zahl ≥ 0 sein (leer = unbegrenzt)',
   'code.ai_features_invalid': 'Ungültige Funktionsauswahl',
+  'code.cost_rate_required': 'Bitte gib einen Wechselkurs für {currency} an (1 USD = ? {currency})',
   'code.backup_busy': 'Es läuft bereits ein Sicherungsvorgang',
   'code.backup_corrupt': 'Die Sicherung ist beschädigt',
   'code.backup_not_found': 'Sicherung nicht gefunden',

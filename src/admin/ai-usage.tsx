@@ -11,13 +11,12 @@ interface Sum {
   ok_requests: number
   input_tokens: number
   output_tokens: number
-  cost: number
-  cost_display: number
+  cost: number // in the tracking currency
   unpriced_requests: number
   error_rate: number
   avg_latency_ms: number | null
 }
-interface Cur { code: string; rate: number }
+interface Cur { code: string }
 type Summary = Sum & { currency: Cur }
 interface TsRow extends Sum { bucket: string; key: string | number | null; label: string | null }
 interface Timeseries { bucket: 'day' | 'week' | 'month'; group: Group; currency: Cur; buckets: string[]; keys: { key: string | number | null; label: string | null }[]; rows: TsRow[] }
@@ -134,7 +133,7 @@ export function AiUsageAnalytics() {
       const k = keepSet.has(String(r.key)) ? String(r.key) : '__other'
       const id = `${r.bucket}|${k}`
       const prev = idx.get(id)
-      idx.set(id, prev ? { ...prev, requests: prev.requests + r.requests, input_tokens: prev.input_tokens + r.input_tokens, output_tokens: prev.output_tokens + r.output_tokens, cost_display: prev.cost_display + r.cost_display } : r)
+      idx.set(id, prev ? { ...prev, requests: prev.requests + r.requests, input_tokens: prev.input_tokens + r.input_tokens, output_tokens: prev.output_tokens + r.output_tokens, cost: prev.cost + r.cost } : r)
     }
     return { series: ser, buckets: makeBuckets(ts.buckets, ts.bucket), index: idx }
   }, [ts])
@@ -142,7 +141,7 @@ export function AiUsageAnalytics() {
   const val = (m: 'requests' | 'tokens' | 'cost') => (b: string, k: string) => {
     const r = index.get(`${b}|${k}`)
     if (!r) return 0
-    return m === 'requests' ? r.requests : m === 'tokens' ? r.input_tokens + r.output_tokens : r.cost_display
+    return m === 'requests' ? r.requests : m === 'tokens' ? r.input_tokens + r.output_tokens : r.cost
   }
   const tableOf = (m: 'requests' | 'tokens' | 'cost', fmt: (n: number) => string) => ({
     columns: [t('aiUsage.chart.period'), ...series.map((s) => s.label)],
@@ -153,10 +152,10 @@ export function AiUsageAnalytics() {
 
   const sortedUsers = useMemo(() => {
     if (!users) return []
-    const totalCost = users.users.reduce((a, u) => a + u.cost_display, 0)
+    const totalCost = users.users.reduce((a, u) => a + u.cost, 0)
     const totalReq = users.users.reduce((a, u) => a + u.requests, 0)
-    const rows = users.users.map((u) => ({ u, name: u.name ?? u.email ?? t('aiUsage.unknownUser'), tokens: u.input_tokens + u.output_tokens, share: totalCost > 0 ? u.cost_display / totalCost : totalReq > 0 ? u.requests / totalReq : 0 }))
-    const get = (r: (typeof rows)[number]) => (sort.key === 'name' ? r.name.toLowerCase() : sort.key === 'requests' ? r.u.requests : sort.key === 'tokens' ? r.tokens : sort.key === 'cost' ? r.u.cost_display : r.share)
+    const rows = users.users.map((u) => ({ u, name: u.name ?? u.email ?? t('aiUsage.unknownUser'), tokens: u.input_tokens + u.output_tokens, share: totalCost > 0 ? u.cost / totalCost : totalReq > 0 ? u.requests / totalReq : 0 }))
+    const get = (r: (typeof rows)[number]) => (sort.key === 'name' ? r.name.toLowerCase() : sort.key === 'requests' ? r.u.requests : sort.key === 'tokens' ? r.tokens : sort.key === 'cost' ? r.u.cost : r.share)
     return rows.sort((a, b) => {
       const x = get(a)
       const y = get(b)
@@ -216,7 +215,7 @@ export function AiUsageAnalytics() {
         <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
           <Stat label={t('aiUsage.stat.requests')} value={sum ? fmtNumber(sum.requests) : '–'} sub={sum ? t('aiUsage.stat.requestsOk', { count: sum.ok_requests }) : undefined} />
           <Stat label={t('aiUsage.stat.tokens')} value={sum ? fmtNumber(sum.input_tokens + sum.output_tokens) : '–'} sub={sum ? t('aiUsage.stat.tokensSplit', { input: compactNumber(sum.input_tokens), output: compactNumber(sum.output_tokens) }) : undefined} />
-          <Stat label={t('aiUsage.stat.cost')} value={sum ? fmtCost(sum.cost_display, cur) : '–'} sub={sum && sum.unpriced_requests > 0 ? t('aiUsage.stat.unpriced', { count: sum.unpriced_requests }) : undefined} />
+          <Stat label={t('aiUsage.stat.cost')} value={sum ? fmtCost(sum.cost, cur) : '–'} sub={sum && sum.unpriced_requests > 0 ? t('aiUsage.stat.unpriced', { count: sum.unpriced_requests }) : undefined} />
           <Stat label={t('aiUsage.stat.errorRate')} value={sum ? pct(sum.error_rate) : '–'} sub={sum ? t('aiUsage.stat.errors', { count: sum.errors }) : undefined} />
           <Stat label={t('aiUsage.stat.latency')} value={sum?.avg_latency_ms != null ? `${fmtNumber(sum.avg_latency_ms)} ms` : '–'} />
         </div>
@@ -255,13 +254,13 @@ export function AiUsageAnalytics() {
                       <td className="px-4 py-2.5 text-left"><div className="font-medium truncate max-w-56">{name}</div>{u.email && u.name && <div className="meta truncate max-w-56">{u.email}</div>}</td>
                       <td className="px-4 py-2.5 text-right">{fmtNumber(u.requests)}</td>
                       <td className="px-4 py-2.5 text-right">{compactNumber(tokens)}</td>
-                      <td className="px-4 py-2.5 text-right">{u.unpriced_requests > 0 ? <span title={t('aiUsage.users.unpricedHint', { count: u.unpriced_requests })}>{fmtCost(u.cost_display, cur)}*</span> : fmtCost(u.cost_display, cur)}</td>
+                      <td className="px-4 py-2.5 text-right">{u.unpriced_requests > 0 ? <span title={t('aiUsage.users.unpricedHint', { count: u.unpriced_requests })}>{fmtCost(u.cost, cur)}*</span> : fmtCost(u.cost, cur)}</td>
                       <td className="px-4 py-2.5 text-right">{pct(share)}</td>
                       <td className="px-4 py-2.5 text-right min-w-36">
                         {lim == null && cap == null ? <span className="text-muted">–</span> : (
                           <div className="space-y-1.5 ml-auto max-w-36">
                             {lim != null && <div><div className="meta">{t('aiUsage.users.monthRequests', { used: u.month_requests, limit: lim })}</div><Progress value={u.month_requests} max={lim} /></div>}
-                            {cap != null && <div><div className="meta">{t('aiUsage.users.monthCost', { used: fmtCost(u.month_cost * (sum?.currency.rate ?? 1), cur), limit: fmtCost(cap * (sum?.currency.rate ?? 1), cur) })}</div><Progress value={u.month_cost} max={cap} /></div>}
+                            {cap != null && <div><div className="meta">{t('aiUsage.users.monthCost', { used: fmtCost(u.month_cost, cur), limit: fmtCost(cap, cur) })}</div><Progress value={u.month_cost} max={cap} /></div>}
                           </div>
                         )}
                       </td>
