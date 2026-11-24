@@ -4,7 +4,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versio
 The section of a version is used automatically as the release notes when releasing
 (`scripts/release-notes.mjs`); the heading must read exactly `## [x.y.z]`.
 
-## [1.0.0] – 2026-11-23
+## [1.0.0] – 2026-11-24
 
 First public version.
 
