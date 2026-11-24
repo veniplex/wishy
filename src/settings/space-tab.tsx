@@ -6,6 +6,7 @@ import { download, errMsg, spaceLabel } from '../api'
 import { parseNum } from '../lib'
 import { t } from '../i18n'
 import { OccasionTypesSection } from './occasion-types'
+import { RelationshipTypesSection } from './relationship-types'
 import { SpacePermissionsSection } from './permissions'
 import { Badge, Button, Card, Field, FilePicker, Section, Select, useConfirm, useToast } from '../ui'
 
@@ -57,6 +58,7 @@ export function SpaceTab() {
         </Card>
       </Section>
       <OccasionTypesSection />
+      <RelationshipTypesSection />
       <SpacePermissionsSection />
       <Section title={t('settings.space.backup.title', { space: space ? spaceLabel(space) : '' })}>
         <Card className="space-y-3">

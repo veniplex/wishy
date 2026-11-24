@@ -1,37 +1,80 @@
 import { db, tx } from '../db.js'
 import { getSys, setSys } from '../config.js'
-import { computeCost, getPrices, seedPrices, trackingCurrency } from './prices.js'
+import { computeCost, DEFAULT_PRICES, getPrices, scalePrices, trackingCurrency } from './prices.js'
 
-seedPrices()
+/*
+ * Currency model (since 1.0.2): the price table, the recorded costs and the cost cap are all in the cost currency (ai_cost_currency).
+ * Markers: ai_usage_currency {code} = currency of ai_usage.cost / ai_usage_daily.cost / the cap (missing = USD, a 1.0.0 database);
+ * ai_prices_currency = currency code of ai_prices (missing = USD prices from 1.0.0/1.0.1).
+ * ai_cost_rate (1.0.0/1.0.1: "1 USD = ? currency") is only read once by the startup migration.
+ */
+
+const moneyRound = (v) => Math.round(v * 100) / 100
 
 /** Currency the stored costs are in (setting ai_usage_currency); missing = USD, i.e. a 1.0.0 database. */
-function recordedCurrency() {
+const recordedCurrency = () => {
   const v = getSys('ai_usage_currency')
-  return v && typeof v.code === 'string' && Number(v.rate) > 0 ? { code: v.code, rate: Number(v.rate) } : { code: 'USD', rate: 1 }
+  return v && typeof v.code === 'string' ? v.code : 'USD'
+}
+
+/** True if there is anything a currency change would have to convert (costs, cap or prices). */
+export function hasConvertibleData() {
+  const rows = db.prepare('SELECT (SELECT COUNT(*) FROM ai_usage WHERE cost IS NOT NULL) + (SELECT COUNT(*) FROM ai_usage_daily) AS n').get().n
+  const cap = getSys('ai_monthly_cost_cap')
+  return rows > 0 || typeof cap === 'number' || Object.keys(getPrices()).length > 0
 }
 
 /**
- * Brings the stored costs in line with the tracking currency (invariant: ai_usage.cost, ai_usage_daily.cost and the cost cap are in it).
- * A different currency converts all costs and the cap with newRate / oldRate; the same currency with a new rate only moves the marker
- * (history stays as recorded). Runs at startup (1.0.0 databases, restored backups) and after saving the settings; idempotent.
- * @param {{ convertCap?: boolean }} opts convertCap=false when the cap was just set explicitly in the new currency
+ * Converts recorded costs, the cost cap and the price table to a new currency with a one-time rate (1 old = rate new) and moves the markers.
+ * Everything is in `from` before and in `to` after; idempotent for from === to.
+ * @param {{ cap?: boolean, prices?: boolean }} opts false when the value was just given explicitly in the new currency
  */
-export function reconcileCurrency({ convertCap = true } = {}) {
+export function convertCurrency(to, rate, { cap = true, prices = true } = {}) {
   tx(() => {
     const from = recordedCurrency()
-    const to = trackingCurrency()
-    if (from.code === to.code && from.rate === to.rate) return
-    if (from.code !== to.code) {
-      const factor = to.rate / from.rate
-      db.prepare('UPDATE ai_usage SET cost=cost*? WHERE cost IS NOT NULL').run(factor)
-      db.prepare('UPDATE ai_usage_daily SET cost=cost*?').run(factor)
-      const cap = getSys('ai_monthly_cost_cap')
-      if (convertCap && typeof cap === 'number') setSys('ai_monthly_cost_cap', Math.round(cap * factor * 100) / 100)
+    if (from !== to) {
+      db.prepare('UPDATE ai_usage SET cost=cost*? WHERE cost IS NOT NULL').run(rate)
+      db.prepare('UPDATE ai_usage_daily SET cost=cost*?').run(rate)
+      const c = getSys('ai_monthly_cost_cap')
+      if (cap && typeof c === 'number') setSys('ai_monthly_cost_cap', moneyRound(c * rate))
+      setSys('ai_usage_currency', { code: to })
     }
-    setSys('ai_usage_currency', to)
+    if (String(getSys('ai_prices_currency') || 'USD') !== to) {
+      if (prices) setSys('ai_prices', scalePrices(getPrices(), rate))
+      setSys('ai_prices_currency', to)
+    }
+    setSys('ai_cost_rate', null) // legacy setting, no longer used
   })
 }
-reconcileCurrency()
+
+/**
+ * Startup, idempotent: brings a 1.0.0 / 1.0.1 database to the currency model above.
+ * 1.0.0: costs in USD (no marker), 1.0.1: costs in the cost currency (marker). In both, prices are USD and ai_cost_rate (1 USD = ?) belongs
+ * to ai_cost_currency. A fresh install gets the default prices (USD only; other currencies start with an empty table).
+ */
+export function migrateCurrency() {
+  tx(() => {
+    const code = trackingCurrency().code
+    const r = Number(getSys('ai_cost_rate'))
+    const rate = code !== 'USD' && Number.isFinite(r) && r > 0 ? r : 1
+    if (getSys('ai_usage_currency') === null) {
+      if (rate !== 1) {
+        db.prepare('UPDATE ai_usage SET cost=cost*? WHERE cost IS NOT NULL').run(rate)
+        db.prepare('UPDATE ai_usage_daily SET cost=cost*?').run(rate)
+        const cap = getSys('ai_monthly_cost_cap')
+        if (typeof cap === 'number') setSys('ai_monthly_cost_cap', moneyRound(cap * rate))
+      }
+      setSys('ai_usage_currency', { code })
+    }
+    if (getSys('ai_prices_currency') === null) {
+      const stored = getSys('ai_prices')
+      if (stored === null) setSys('ai_prices', code === 'USD' ? DEFAULT_PRICES : {})
+      else if (rate !== 1 && typeof stored === 'object' && !Array.isArray(stored)) setSys('ai_prices', scalePrices(stored, rate))
+      setSys('ai_prices_currency', code)
+    }
+  })
+}
+migrateCurrency()
 
 export const monthKey = (d = new Date()) => d.toISOString().slice(0, 7)
 

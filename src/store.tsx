@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { WifiOff } from 'lucide-react'
-import { type Gift, type Item, type Occasion, type OccasionType, type Person, type PermissionKey, type State } from './lib'
+import { type Gift, type Item, type Occasion, type OccasionType, type Person, type RelationshipType, type PermissionKey, type State } from './lib'
 import { api, apiCreate, errMsg, errorText, type Member, type WishlistsOverview } from './api'
 import { useAuth } from './auth'
 import { realId, realIds } from './offline/engine'
@@ -14,6 +14,9 @@ export type Dialog =
   | { type: 'occasion'; initial?: Partial<Occasion> }
   | { type: 'item'; initial?: Partial<Item> }
   | { type: 'gift'; initial?: Partial<Gift> }
+  /** Read-only detail views (click on a row); "Edit" there opens the form */
+  | { type: 'item-detail'; initial: Partial<Item> }
+  | { type: 'gift-detail'; initial: Partial<Gift> }
   /** "Add" menu: capture idea / add wish */
   | { type: 'add' }
   /** Add a wish (choose a list) */
@@ -252,4 +255,31 @@ export function useOccasionTypes() {
     }
     return { all, active: all.filter((x) => !x.hidden), of }
   }, [s.occasion_types, lang, freshOccasionType])
+}
+
+/** Display name of a relationship type: the name of a custom type, otherwise the localized label of the built-in type. */
+export function relationshipTypeLabel(ty: Pick<RelationshipType, 'name' | 'builtin_key'> | undefined, fallbackKey: string): string {
+  if (ty?.name) return ty.name
+  const bk = ty?.builtin_key ?? (ty ? null : fallbackKey)
+  if (bk) {
+    const key = `give.reltype.${bk}` as TKey
+    const label = t(key)
+    if (label !== key) return label
+  }
+  return fallbackKey
+}
+export interface RelationshipTypeView extends RelationshipType {
+  label: string
+}
+/** All relationship types of the current space (hidden ones included, flagged; in the space's order) with their display names. */
+export function useRelationshipTypes() {
+  const { s } = useStore()
+  const lang = useLocale()
+  return useMemo(() => {
+    const all: RelationshipTypeView[] = (s.relationship_types ?? []).map((x) => ({ ...x, label: relationshipTypeLabel(x, x.key) }))
+    const byKey = new Map(all.map((x) => [x.key, x]))
+    /** Display name of persons.relationship ('' = none; an unknown key shows as is) */
+    const labelOf = (key: string | null | undefined) => (key ? (byKey.get(key)?.label ?? key) : '')
+    return { all, active: all.filter((x) => !x.hidden), labelOf, byKey }
+  }, [s.relationship_types, lang])
 }

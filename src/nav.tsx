@@ -139,7 +139,7 @@ export function TopBar() {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <Link to="/" aria-label={t('nav.brand.home', { appName })} className="min-w-0"><Brand name={appName} /></Link>
         <OfflineStatus />
-        <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
+        <div className="flex items-center gap-1 sm:gap-2 min-w-0">
           <SpaceButton />
           <NewMenu />
           <PrivacyButton onClick={() => setProt(true)} />

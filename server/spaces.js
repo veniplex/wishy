@@ -1,4 +1,5 @@
 import { ensureOccasionTypesForSpace } from './occasion-types.js'
+import { ensureRelationshipTypesForSpace } from './relationship-core.js'
 import { db, tx, insert, ACCESS_OK_SQL, syncSpaceAccessForUser, syncSpaceAccessForList } from './db.js'
 import { baseUrl } from './config.js'
 import { requireAuth } from './session.js'
@@ -6,6 +7,7 @@ import { userPublicFull } from './userview.js'
 import { bad, notFound, forbidden, newToken, numId, reqId } from './util.js'
 import { PERMISSIONS, cleanPermissions, requirePermission, resolvePermissions } from './permissions.js'
 import { audit } from './audit.js'
+import { spacePhotoFiles, removePhotoFiles } from './persons.js'
 
 const DAY = 86_400_000
 
@@ -88,6 +90,7 @@ export function createSpace(name, userId, { personal = false } = {}) {
     )
     db.prepare("INSERT INTO space_members (space_id,user_id,role) VALUES (?,?,'owner')").run(id, userId)
     ensureOccasionTypesForSpace(id) // default occasion types
+    ensureRelationshipTypesForSpace(id) // default relationship types
     addMemberPerson(id, userId)
     return id
   })
@@ -99,7 +102,9 @@ export function deleteSpaceData(spaceId) {
     db.prepare('DELETE FROM gifts WHERE space_id=?').run(spaceId)
     db.prepare('DELETE FROM items WHERE space_id=?').run(spaceId)
     db.prepare('DELETE FROM occasions WHERE space_id=?').run(spaceId)
+    const photos = spacePhotoFiles(spaceId)
     db.prepare('DELETE FROM persons WHERE space_id=?').run(spaceId)
+    removePhotoFiles(photos)
     db.prepare('DELETE FROM settings WHERE space_id=?').run(spaceId)
     db.prepare('DELETE FROM spaces WHERE id=?').run(spaceId)
     for (const m of members) syncSpaceAccessForUser(m.user_id)

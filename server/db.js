@@ -97,12 +97,15 @@ CREATE TABLE IF NOT EXISTS persons (
   notes TEXT,
   yearly_budget REAL,
   archived INTEGER NOT NULL DEFAULT 0,
+  -- Key of a relationship_types row of the space (relationship-core.js); legacy free text is converted by the schema 3 migration
   relationship TEXT,
+  -- Unused since schema 3 (relationship groups were removed); kept so that no column has to be dropped
   relationship_group TEXT,
   email TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   space_id INTEGER,
-  linked_user_id INTEGER
+  linked_user_id INTEGER,
+  photo_file TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_persons_space ON persons(space_id);
 CREATE INDEX IF NOT EXISTS idx_persons_linked ON persons(linked_user_id);
@@ -135,6 +138,21 @@ CREATE TABLE IF NOT EXISTS occasion_types (
   default_month_day TEXT,
   default_recurring INTEGER NOT NULL DEFAULT 0,
   default_audience TEXT NOT NULL DEFAULT 'selected' CHECK (default_audience IN ('all','selected')),
+  sort INTEGER NOT NULL DEFAULT 0,
+  hidden INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (space_id, key),
+  CHECK (builtin_key IS NULL OR name IS NULL)
+);
+-- Relationship types per space (seeded and managed in relationship-core.js / relationship-types.js); persons.relationship holds the key.
+-- Built-in rows (builtin_key set) have no name: the label comes from the code/i18n; only sort and hidden are per space.
+CREATE TABLE IF NOT EXISTS relationship_types (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  space_id INTEGER NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+  key TEXT NOT NULL,
+  builtin_key TEXT,
+  name TEXT,
   sort INTEGER NOT NULL DEFAULT 0,
   hidden INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -396,7 +414,7 @@ CREATE TABLE IF NOT EXISTS ai_usage_daily (
 `)
 
 export const TABLES = {
-  persons: ['name', 'birthday', 'emoji', 'color', 'notes', 'yearly_budget', 'archived', 'linked_user_id', 'relationship', 'relationship_group', 'email'],
+  persons: ['name', 'birthday', 'emoji', 'color', 'notes', 'yearly_budget', 'archived', 'linked_user_id', 'relationship', 'email'],
   occasions: ['name', 'type', 'date', 'recurring', 'series_id', 'person_id', 'budget', 'notes', 'audience'],
   items: ['person_id', 'mentioned', 'title', 'notes', 'url', 'price', 'priority', 'status', 'occasion_id', 'source', 'image_url', 'currency'],
   gifts: ['title', 'notes', 'url', 'shop', 'occasion_id', 'item_id', 'price', 'status', 'payer_id', 'date', 'image_url', 'wish_id',
@@ -623,4 +641,3 @@ export function logGiftEvent(giftId, userId, type, data) {
   )
 }
 
-export const RELATIONSHIP_GROUPS = ['partner', 'family', 'friends', 'work', 'other']

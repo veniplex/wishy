@@ -2,9 +2,9 @@
 import { useState } from 'react'
 import { CalendarHeart, Heart, Lightbulb, Link2, Lock, Pencil, Users } from 'lucide-react'
 import { Navigate, useParams } from 'react-router-dom'
-import { useLinkOptions, useOccasionTypes, useStore } from './store'
+import { useLinkOptions, useOccasionTypes, useRelationshipTypes, useStore } from './store'
 import { t } from './i18n'
-import { RELATION_GROUPS, costFor, countdown, daysUntil, fmtDate, giftDateOf, giftYear, groupOf, isLive, nextBirthday, sum, type Occasion, type Person } from './lib'
+import { costFor, countdown, daysUntil, fmtDate, giftDateOf, giftYear, isLive, nextBirthday, sum, type Occasion, type Person } from './lib'
 import { Avatar, Button, Crumbs, EmptyState, IconButton, List, Money, Page, PillTabs, Section, Thumb, ToggleLink, tintOf } from './ui'
 import { GiftRow, IdeaCard, ItemRow, occasionIconByName, rich } from './components'
 import { LinkedLists } from './wishlists'
@@ -50,8 +50,8 @@ function OccasionBlock({ o, p }: { o: Occasion; p: Person }) {
       menu={can && <LeaveMenu label={t('calendar.plan.leaveHere', { name: p.name })} onLeave={() => void leave(o, p.id)} />}
       footer={<PlanButtons personId={p.id} occasionId={o.id} />}
     >
-      {gifts.map((g) => <GiftRow key={g.id} g={g} hideOccasion detail except={p.id} />)}
-      {ideas.map((i) => <ItemRow key={i.id} i={i} hideOccasion />)}
+      {gifts.map((g) => <GiftRow key={g.id} g={g} hideOccasion detail except={p.id} kind />)}
+      {ideas.map((i) => <ItemRow key={i.id} i={i} hideOccasion kind />)}
     </PlanBlock>
   )
 }
@@ -82,8 +82,8 @@ function LeftOutLine({ p, occasions }: { p: Person; occasions: Occasion[] }) {
                 meta={fmtDate(o.date, false)}
                 menu={can && <Button size="sm" onClick={() => void include(o, p.id)}>{t('calendar.plan.include')}</Button>}
               >
-                {gifts.map((g) => <GiftRow key={g.id} g={g} hideOccasion detail except={p.id} />)}
-                {ideas.map((i) => <ItemRow key={i.id} i={i} hideOccasion />)}
+                {gifts.map((g) => <GiftRow key={g.id} g={g} hideOccasion detail except={p.id} kind />)}
+                {ideas.map((i) => <ItemRow key={i.id} i={i} hideOccasion kind />)}
               </PlanBlock>
             )
           })}
@@ -116,8 +116,8 @@ function PlanTab({ p }: { p: Person }) {
   const pastRows = past.flatMap((o) => {
     const { gifts, ideas: pastIdeas } = stuff(o)
     return [
-      ...gifts.filter((g) => g.status !== 'given' && g.status !== 'returned').map((g) => <GiftRow key={`g${g.id}`} g={g} detail except={p.id} />),
-      ...pastIdeas.map((i) => <ItemRow key={`i${i.id}`} i={i} />),
+      ...gifts.filter((g) => g.status !== 'given' && g.status !== 'returned').map((g) => <GiftRow key={`g${g.id}`} g={g} detail except={p.id} kind />),
+      ...pastIdeas.map((i) => <ItemRow key={`i${i.id}`} i={i} kind />),
     ]
   })
   return (
@@ -135,8 +135,8 @@ function PlanTab({ p }: { p: Person }) {
         </div>
       ) : (
         <Section title={t('give.detail.noOccasion')} action={<div className="flex flex-wrap justify-end gap-2">{ai}</div>}>
-          {loose.length > 0 && <List>{loose.map((g) => <GiftRow key={g.id} g={g} except={p.id} />)}</List>}
-          {ideas.length > 0 && <div className="grid gap-4 grid-cols-[repeat(auto-fill,minmax(min(100%,220px),1fr))]">{ideas.map((i) => <IdeaCard key={i.id} i={i} />)}</div>}
+          {loose.length > 0 && <List>{loose.map((g) => <GiftRow key={g.id} g={g} except={p.id} kind />)}</List>}
+          {ideas.length > 0 && <div className="grid gap-4 grid-cols-[repeat(auto-fill,minmax(min(100%,220px),1fr))]">{ideas.map((i) => <IdeaCard key={i.id} i={i} kind />)}</div>}
           {buttons && <div className="flex flex-wrap gap-2">{buttons}</div>}
         </Section>
       )}
@@ -184,6 +184,7 @@ export function PersonDetail() {
   const { personId } = useParams()
   const { s, person, open, itemState } = useStore()
   const links = useLinkOptions()
+  const relTypes = useRelationshipTypes()
   const [tab, setTab] = useState<Tab>('plan')
   const p = person(Number(personId))
   if (p && p.id !== Number(personId)) return <Navigate to={`/gifting/${p.id}`} replace /> // created offline, synced meanwhile
@@ -212,7 +213,7 @@ export function PersonDetail() {
         <div className="flex-1 basis-72 min-w-0">
           <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
             <h1 className="h1">{p.name}</h1>
-            {p.relationship && <span className="text-lg">{p.relationship}</span>}
+            {p.relationship && <span className="text-lg">{relTypes.labelOf(p.relationship)}</span>}
           </div>
           <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 mt-3 text-[15px]">
             {bday
@@ -221,7 +222,6 @@ export function PersonDetail() {
             {linkedName && <span className="inline-flex items-center gap-2"><Link2 size={18} />{t('give.detail.linked', { name: linkedName })}</span>}
           </div>
           <div className="flex flex-wrap gap-2 mt-4">
-            <span className={pill}>{RELATION_GROUPS.find((g) => g.id === groupOf(p))?.label}</span>
             <span className={pill}>{t('give.persons.openIdeas', { count: openCount })}</span>
             {p.yearly_budget ? <span className={pill}>{rich('give.detail.budget', { amount: <Money n={p.yearly_budget} /> })}</span> : null}
             {giftCount > 0 && <span className={pill}>{t('give.detail.giftsCount', { count: giftCount })}</span>}

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import {
   db, insert, update, tx, TABLES, norm, ensureUpcoming, setOccasionParticipants, setGiftLinks, nextBirthday, todayStr,
-  userSettings, setUserSetting, logGiftEvent, RELATIONSHIP_GROUPS,
+  userSettings, setUserSetting, logGiftEvent,
 } from './db.js'
 import { requireAuth } from './session.js'
 import { noteCreated } from './ops-sink.js'
@@ -9,7 +9,8 @@ import { spaceCtx, addMemberPerson } from './spaces.js'
 import { linkedWishlists, hasAccessToOwner, createWishlist, addWish } from './wishlists.js'
 import { loadDemo } from './demo.js'
 import { defaultName, userLocale } from './locale.js'
-import { mergePersons } from './persons.js'
+import { mergePersons, withPhotoUrl, cleanEmoji, spacePhotoFiles, removePhotoFiles } from './persons.js'
+import { relationshipTypeRoutes, listRelationshipTypes, exportRelationshipTypes, importRelationshipTypes, checkRelationship, auditRelationshipType } from './relationship-types.js'
 import { occasionTypeRoutes, listOccasionTypes, exportOccasionTypes, importOccasionTypes, checkOccasionType, cleanAudience, defaultAudience } from './occasion-types.js'
 import { occasionParticipants } from './participants.js'
 import { requirePermission } from './permissions.js'
@@ -124,7 +125,8 @@ export function getState(ctx) {
   const persons = d.persons
     .map((p) => {
       const mine = p.linked_user_id === ctx.userId
-      const out = { ...strip(p), is_me: mine ? 1 : 0 }
+      const out = { ...withPhotoUrl(strip(p)), is_me: mine ? 1 : 0 }
+      delete out.relationship_group // unused column since schema 3
       // What others noted about me stays hidden
       if (ctx.hidden.has(p.id)) {
         out.notes = null
@@ -142,6 +144,7 @@ export function getState(ctx) {
     permissions: ctx.permissions,
     persons,
     occasion_types: listOccasionTypes(ctx.spaceId),
+    relationship_types: listRelationshipTypes(ctx.spaceId),
     // person_ids = effective participants, excluded_ids = left out persons (see participants.js)
     occasions: d.occasions.sort(byDate).map((o) => ({
       ...strip(o),
@@ -176,10 +179,11 @@ export function exportSpace(ctx) {
     app: 'wishlist',
     version: 1,
     exported_at: new Date().toISOString(),
-    persons: d.persons.map(({ space_id, linked_user_id, ...p }) => ({ ...p, is_me: meIds.has(p.id) ? 1 : 0 })),
+    persons: d.persons.map(({ space_id, linked_user_id, photo_file, relationship_group, ...p }) => ({ ...p, is_me: meIds.has(p.id) ? 1 : 0 })),
     occasions: d.occasions.map(strip),
     occasion_persons: d.occasion_persons,
     occasion_types: exportOccasionTypes(ctx.spaceId),
+    relationship_types: exportRelationshipTypes(ctx.spaceId),
     items: d.items.map(strip),
     gifts: d.gifts.map(strip),
     gift_recipients: d.gift_recipients,
@@ -196,6 +200,7 @@ export function importSpace(ctx, data) {
     db.prepare('DELETE FROM gifts WHERE space_id=?').run(sid)
     db.prepare('DELETE FROM items WHERE space_id=?').run(sid)
     db.prepare('DELETE FROM occasions WHERE space_id=?').run(sid)
+    removePhotoFiles(spacePhotoFiles(sid)) // photos are not part of the export file
     db.prepare('DELETE FROM persons WHERE space_id=?').run(sid)
     db.prepare('DELETE FROM settings WHERE space_id=?').run(sid)
 
@@ -206,7 +211,7 @@ export function importSpace(ctx, data) {
     let myPerson = null
     for (const p of arr('persons')) {
       if (!p || typeof p.name !== 'string') continue
-      const nid = insert('persons', { ...p, linked_user_id: undefined }, sid)
+      const nid = insert('persons', { ...p, emoji: cleanEmoji(p.emoji, false), linked_user_id: undefined }, sid)
       pmap.set(p.id, nid)
       if (p.is_me && myPerson === null) myPerson = nid
     }
@@ -221,6 +226,7 @@ export function importSpace(ctx, data) {
       omap.set(o.id, insert('occasions', { ...o, audience: o.audience === 'all' ? 'all' : 'selected', person_id: pmap.get(o.person_id) ?? null }, sid))
     }
     importOccasionTypes(sid, data.occasion_types) // after the occasions (unknown types get a custom row)
+    importRelationshipTypes(sid, data.relationship_types) // after the persons (free text of older backups is converted to types)
     for (const r of arr('occasion_persons')) {
       const o = omap.get(r.occasion_id)
       const p = pmap.get(r.person_id)
@@ -328,17 +334,20 @@ function checkLink(ctx, person, value) {
   }
 }
 
-function cleanRelationship(body) {
+/** Validates email and relationship (key of a relationship type; free text of older clients is matched to / creates a type). `current` = the person's present relationship. */
+function cleanPersonFields(ctx, req, body, current) {
   if (body.email !== undefined) {
     const e = String(body.email ?? '').trim()
     if (e && (!EMAIL_RE.test(e) || e.length > 254)) throw bad('Please enter a valid email address', 'email_invalid')
     body.email = e || null
   }
-  if (body.relationship !== undefined) body.relationship = str(body.relationship, 60)
-  if (body.relationship_group !== undefined) {
-    const g = body.relationship_group === '' ? null : body.relationship_group
-    if (g !== null && !RELATIONSHIP_GROUPS.includes(g)) throw bad('Invalid relationship group', 'relationship_invalid')
-    body.relationship_group = g
+  delete body.relationship_group // removed in 1.0.2; older clients may still send it
+  if (body.relationship !== undefined) {
+    body.relationship = checkRelationship(ctx.spaceId, body.relationship, current, (key, name) => {
+      const was = req._audited // the person's own audit entry (middleware) must still be written
+      auditRelationshipType(req, 'relationship_type.create', ctx.spaceId, get('SELECT * FROM relationship_types WHERE space_id=? AND key=?', ctx.spaceId, key), { source: 'person', name })
+      req._audited = was
+    })
   }
 }
 
@@ -525,6 +534,7 @@ export function planningRoutes(app) {
   app.get('/api/state', requireAuth, (req, res) => res.json(getState(spaceCtx(req))))
 
   occasionTypeRoutes(app, route, requireAuth, spaceCtx)
+  relationshipTypeRoutes(app, route, requireAuth, spaceCtx)
 
   // ---- Persons ----
   guarded('manage_persons', 'post', '/api/persons', (ctx, req) => {
@@ -533,7 +543,8 @@ export function planningRoutes(app) {
     dropMoney(ctx, body, ['yearly_budget'])
     checkLink(ctx, null, body.linked_user_id)
     if (body.linked_user_id === '') body.linked_user_id = null
-    cleanRelationship(body)
+    cleanPersonFields(ctx, req, body, null)
+    if (body.emoji !== undefined) body.emoji = cleanEmoji(body.emoji)
     tx(() => noteCreated(insert('persons', body, ctx.spaceId)))
   })
   guarded('manage_persons', 'put', '/api/persons/:id', (ctx, req) => {
@@ -541,7 +552,8 @@ export function planningRoutes(app) {
     const body = { ...req.body }
     dropMoney(ctx, body, ['yearly_budget'])
     checkLink(ctx, p, body.linked_user_id)
-    cleanRelationship(body)
+    cleanPersonFields(ctx, req, body, p.relationship)
+    if (body.emoji !== undefined && body.emoji !== p.emoji) body.emoji = cleanEmoji(body.emoji) // unchanged legacy values stay accepted
     if (body.linked_user_id === undefined) delete body.linked_user_id
     // Own person in a shared space: others' notes/budget stay hidden and unchangeable
     if (ctx.hidden.has(p.id)) {
@@ -584,6 +596,7 @@ export function planningRoutes(app) {
       throw bad('The person of a member cannot be deleted', 'member_person_delete')
     }
     db.prepare('DELETE FROM persons WHERE id=?').run(p.id)
+    removePhotoFiles([p.photo_file])
   })
 
   // ---- Occasions ----

@@ -16,8 +16,8 @@ export function SectionHead({ title, sub, actions }: { title: string; sub?: stri
   return (
     <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-3">
       <div className="min-w-0 flex-1 basis-60">
-        <h2 className="h2 text-balance">{title}</h2>
-        {sub && <p className="text-muted mt-1.5">{sub}</p>}
+        <h2 className="h2 text-2xl md:text-3xl text-balance">{title}</h2>
+        {sub && <p className="text-muted text-sm md:text-[15px] mt-1">{sub}</p>}
       </div>
       {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
     </div>

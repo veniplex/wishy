@@ -14,7 +14,7 @@ import {
   createContext, useCallback, useContext, useEffect, useRef, useState,
   type ButtonHTMLAttributes, type InputHTMLAttributes, type KeyboardEvent, type ReactNode,
 } from 'react'
-import { Link, NavLink } from 'react-router-dom'
+import { Link, NavLink, useLocation } from 'react-router-dom'
 import { Popover } from './controls'
 import { Check, ChevronRight as Crumb, CircleAlert, CircleCheck, ChevronDown, ChevronRight, Copy, Gift as GiftIcon, Search, X, type LucideIcon } from 'lucide-react'
 import { type Person } from './lib'
@@ -123,7 +123,14 @@ const initials = (name: string) => name.trim().split(/\s+/).slice(0, 2).map((w) 
 /** Soft per-person tint (token --t1...--t5), stable per person */
 export const tintOf = (id: number) => `var(--t${(Math.abs(id) % 5) + 1})`
 
-/** Initials in a tinted circle; an emoji, if set, is kept. Sizes: 20 (inline), 32 (dense), 44 (default), 64/96 (header). `ring` = colored border. */
+/** Round photo laid over the (always present) circle of the avatar; if loading fails, the circle with emoji/initials stays visible. */
+function PersonPhoto({ src }: { src: string }) {
+  const [failed, setFailed] = useState<string | null>(null)
+  if (failed === src) return null
+  return <img src={src} alt="" loading="lazy" draggable={false} className="absolute inset-0 size-full object-cover rounded-full" onError={() => setFailed(src)} />
+}
+
+/** Photo, else emoji, else initials in a tinted circle. Sizes: 20 (inline), 32 (dense), 44 (default), 64/96 (header). `ring` = colored border. */
 export function Avatar({ p, size = 32, ring }: { p: Person | undefined; size?: 20 | 32 | 44 | 64 | 96; ring?: string }) {
   if (!p) return null
   return (
@@ -139,7 +146,7 @@ export function Avatar({ p, size = 32, ring }: { p: Person | undefined; size?: 2
       title={p.name}
     >
       {p.emoji || initials(p.name)}
-      {p.linked_user_id ? <UserPictureOverlay userId={p.linked_user_id} /> : null}
+      {p.photo_url ? <PersonPhoto src={p.photo_url} /> : p.linked_user_id ? <UserPictureOverlay userId={p.linked_user_id} /> : null}
     </span>
   )
 }
@@ -228,7 +235,7 @@ export function PageSkeleton() {
 /** The ONE page frame: all pages of the app (including settings, admin) use the same content width. The only exception is centered cards (CenteredCard) without navigation. */
 export function Page({ children }: { children: ReactNode }) {
   return (
-    <div className={'mx-auto w-full flex flex-col gap-8 px-4 pt-5 md:px-10 md:pt-8 pb-[var(--page-pb)] md:pb-16 max-w-[1120px]'}>
+    <div className={'mx-auto w-full flex flex-col gap-6 md:gap-8 px-4 pt-3 md:px-10 md:pt-8 pb-[var(--page-pb)] md:pb-16 max-w-[1120px]'}>
       {children}
     </div>
   )
@@ -254,6 +261,32 @@ export function PillTabs<T extends string>({ value, onChange, items, label }: { 
       {items.map((t) => (
         <button key={t.value} type="button" role="tab" aria-selected={t.value === value} className={cx('tab', t.value === value && 'tab-on')} onClick={() => onChange(t.value)}>{t.label}</button>
       ))}
+    </div>
+  )
+}
+
+export interface SectionNavItem { to: string; label: ReactNode; icon?: LucideIcon; badge?: ReactNode }
+
+/**
+ * Section navigation between DIFFERENT pages (settings, admin): a list on the left from tablet up, a horizontally
+ * scrollable pill bar on phones. Content goes in `children`. Top tabs (PageHeader `tabs`/PillTabs) stay for views of the same content.
+ */
+export function SectionLayout({ label, items, children }: { label: string; items: SectionNavItem[]; children: ReactNode }) {
+  const nav = useRef<HTMLElement>(null)
+  const { pathname } = useLocation()
+  // Phone: keep the active section visible in the scrollable bar
+  useEffect(() => { nav.current?.querySelector('[aria-current="page"]')?.scrollIntoView({ inline: 'center', block: 'nearest' }) }, [pathname])
+  return (
+    <div className="grid gap-4 md:gap-10 md:grid-cols-[13rem_minmax(0,1fr)] items-start">
+      <nav ref={nav} aria-label={label} className="flex md:flex-col gap-1 overflow-x-auto md:overflow-visible -mx-4 px-4 md:mx-0 md:px-0 pb-1 md:pb-0 md:sticky md:top-4 [scrollbar-width:none]">
+        {items.map((s) => (
+          <NavLink key={s.to} to={s.to} className={({ isActive }) => cx('nav-link shrink-0', isActive && 'nav-link-on')}>
+            {s.icon && <s.icon size={18} strokeWidth={2} className="shrink-0" />} {s.label}
+            {s.badge}
+          </NavLink>
+        ))}
+      </nav>
+      <div className="min-w-0">{children}</div>
     </div>
   )
 }
@@ -292,14 +325,14 @@ export function PageHeader({ title, sub, actions, back, tabs, lead }: {
   lead?: ReactNode
 }) {
   return (
-    <header className="-mb-2 space-y-5">
+    <header className="-mb-1 md:-mb-2 space-y-3 md:space-y-5">
       {back && <Crumbs back={back} current={typeof title === 'string' ? title : '…'} />}
       <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-3">
         <div className="flex items-center gap-4 min-w-0 flex-1 basis-60">
           {lead}
           <div className="min-w-0">
             <h1 className="h1 text-balance break-words">{title}</h1>
-            {sub && <p className="text-muted mt-2 text-base">{sub}</p>}
+            {sub && <p className="text-muted mt-1 md:mt-2 text-sm md:text-base">{sub}</p>}
           </div>
         </div>
         {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
@@ -314,10 +347,10 @@ export function Section({ title, eyebrow, action, children, className }: { title
   return (
     <section className={cx('min-w-0', className)}>
       {(title || action) && (
-        <div className="flex items-end justify-between gap-3 mb-4 min-h-8">
+        <div className="flex flex-wrap items-end justify-between gap-x-3 gap-y-2 mb-3 md:mb-4 min-h-8">
           <div className="min-w-0">
             {eyebrow && <div className="eyebrow">{eyebrow}</div>}
-            <h2 className="h2 text-2xl">{title}</h2>
+            <h2 className="h2 text-xl md:text-2xl">{title}</h2>
           </div>
           {action}
         </div>
@@ -329,7 +362,7 @@ export function Section({ title, eyebrow, action, children, className }: { title
 
 /** Two equal-width columns from `lg` (exactly one column ratio in the app). */
 export function TwoCol({ children }: { children: ReactNode }) {
-  return <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">{children}</div>
+  return <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-8 items-start">{children}</div>
 }
 
 /** Grid for key figures. */
@@ -351,7 +384,7 @@ export function Stat({ label, value, sub, children }: { label: string; value: Re
 
 /** Card with uniform padding (`sm` only for small tiles in grids). */
 export function Card({ children, pad = 'md', className }: { children: ReactNode; pad?: 'md' | 'sm' | 'none'; className?: string }) {
-  return <div className={cx('card', pad === 'md' && 'p-5', pad === 'sm' && 'p-4', className)}>{children}</div>
+  return <div className={cx('card', pad === 'md' && 'p-4 md:p-5', pad === 'sm' && 'p-3.5 md:p-4', className)}>{children}</div>
 }
 
 /** Bar above a list: search, filters (Segmented/Select/Chips). */
@@ -371,7 +404,7 @@ export function List({ children, empty, bare }: { children?: ReactNode[] | React
 /** Empty state with icon, text and optional action (its own card). */
 export function EmptyState({ icon: Icon = GiftIcon, children, action }: { icon?: LucideIcon; children: ReactNode; action?: ReactNode }) {
   return (
-    <div className="card py-10 px-6 text-center flex flex-col items-center gap-3">
+    <div className="card py-8 md:py-10 px-5 md:px-6 text-center flex flex-col items-center gap-3">
       <span className="grid place-items-center size-10 rounded-full bg-hover text-muted"><Icon size={18} strokeWidth={1.75} /></span>
       <p className="text-sm text-muted max-w-sm text-balance">{children}</p>
       {action}
@@ -738,7 +771,7 @@ export function CenteredCard({ brand, title, sub, children, footer }: { brand: s
 export function Brand({ name, center, large }: { name: string; center?: boolean; large?: boolean }) {
   return (
     <div className={cx('flex items-center gap-2.5 min-w-0', center && 'justify-center')}>
-      <span className={cx('grid place-items-center shrink-0 rounded-[14px] bg-accent text-accent-ink', large ? 'size-10' : 'size-10')}><GiftIcon size={22} strokeWidth={2} /></span>
+      <span className={cx('grid place-items-center shrink-0 rounded-[14px] bg-accent text-accent-ink', 'size-9 sm:size-10')}><GiftIcon size={22} strokeWidth={2} /></span>
       <span className={cx('font-display font-bold tracking-[-0.01em] truncate', large ? 'text-xl' : 'text-xl max-sm:hidden')}>{name}</span>
     </div>
   )

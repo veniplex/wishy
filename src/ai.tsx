@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
-import { Check, ImageUp, Lightbulb, Search, Sparkles } from 'lucide-react'
+import { ArrowLeft, Check, ImageUp, Lightbulb, Search, Sparkles } from 'lucide-react'
 import { api, errMsg, type AiItem, type AiStatus, type AiSuggestion, type MyWishlist, type WishlistsOverview } from './api'
 import { useStore } from './store'
 import { useAuth } from './auth'
@@ -51,6 +51,78 @@ export function useAiStatus() {
   const { user } = useAuth()
   return user?.features.ai === false ? OFF : s
 }
+
+// ───────────────────────────── Link import mode ─────────────────────────────
+
+export type LinkMode = 'builtin' | 'ai'
+const LM_KEY = 'wishy.linkMode'
+let storedMode: LinkMode | null = (() => {
+  try {
+    const v = localStorage.getItem(LM_KEY)
+    return v === 'ai' || v === 'builtin' ? v : null
+  } catch {
+    return null
+  }
+})()
+let fellBack = false
+const modeListeners = new Set<() => void>()
+const fireMode = () => modeListeners.forEach((l) => l())
+
+/** Tell the picker that the last link was read by the built-in parser because the AI was not available */
+export function setLinkFallback(v: boolean) {
+  if (fellBack === v) return
+  fellBack = v
+  fireMode()
+}
+
+/** How links are read: the user's last choice (kept in this browser), else the admin default. Without AI for link import only 'builtin'. */
+export function useLinkMode() {
+  const ai = useAiStatus()
+  const [, bump] = useState(0)
+  useEffect(() => {
+    const l = () => bump((n) => n + 1)
+    modeListeners.add(l)
+    return () => void modeListeners.delete(l)
+  }, [])
+  const available = ai.enabled && ai.features.link_import
+  const mode: LinkMode = available ? storedMode ?? ai.link_mode ?? 'ai' : 'builtin'
+  const set = (m: LinkMode) => {
+    storedMode = m
+    fellBack = false
+    try { localStorage.setItem(LM_KEY, m) } catch { /* private mode: the choice just isn't remembered */ }
+    fireMode()
+  }
+  return { available, mode, set, fellBack }
+}
+
+/** Choice per link import: built-in parser or AI (only offered when AI can read links) */
+export function LinkModePicker() {
+  const { available, mode, set, fellBack } = useLinkMode()
+  if (!available) return null
+  return (
+    <div className="mt-1.5 space-y-1">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="meta">{t('ai.linkMode.label')}</span>
+        <PillTabs label={t('ai.linkMode.label')} value={mode} onChange={set} items={[{ value: 'builtin', label: t('ai.linkMode.builtin') }, { value: 'ai', label: <span className="inline-flex items-center gap-1"><Sparkles size={13} />{t('ai.linkMode.ai')}</span> }]} />
+      </div>
+      <p className="meta">{mode === 'ai' ? t('ai.linkMode.aiHint') : t('ai.linkMode.builtinHint')}</p>
+      {fellBack && <p className="meta text-warn">{t('ai.linkMode.fallback')}</p>}
+    </div>
+  )
+}
+
+/** Consistent "AI" badge with a tooltip; `feature` adds what is sent to the provider. Put it on everything that triggers or uses AI. */
+export const AiBadge = ({ feature }: { feature?: AiFeatureKey }) => {
+  const hint = feature ? `${t('ai.badgeHint')} ${t(`ai.sent.${feature}` as const)}` : t('ai.badgeHint')
+  return <span title={hint} className="inline-flex shrink-0"><Badge tone="accent" icon={Sparkles}>{t('ai.badge')}</Badge></span>
+}
+
+export type AiFeatureKey = 'link_import' | 'text_import' | 'image_import' | 'suggestions'
+
+/** Short, plain note at the place where an AI request is started: what is sent to the provider */
+export const AiNotice = ({ feature }: { feature: AiFeatureKey }) => (
+  <p className="meta flex items-start gap-2"><AiBadge feature={feature} /><span>{t(`ai.sent.${feature}` as const)}</span></p>
+)
 
 /** Small "AI" marker for values filled in or cleaned up by the AI */
 export const AiMark = ({ children }: { children?: ReactNode }) => (
@@ -212,7 +284,7 @@ export function ImportDialog({ init, onClose, onDone }: { init?: ImportInit; onC
       footer={
         drafts ? (
           <>
-            <Button variant="ghost" onClick={() => { setDrafts(null); setError('') }} disabled={busy}>{t('ai.import.back')}</Button>
+            <Button variant="ghost" icon={ArrowLeft} iconOnlyOnMobile aria-label={t('ai.import.back')} onClick={() => { setDrafts(null); setError('') }} disabled={busy}>{t('ai.import.back')}</Button>
             <span className="flex-1" />
             <Button onClick={onClose}>{t('common.cancel')}</Button>
             <Button variant="primary" icon={Check} onClick={take} disabled={busy || !count}>{busy ? t('ai.import.saving') : t('ai.import.takeCount', { count })}</Button>
@@ -232,6 +304,7 @@ export function ImportDialog({ init, onClose, onDone }: { init?: ImportInit; onC
             <PillTabs label={t('ai.import.target')} value={target} onChange={setTarget} items={[{ value: 'wishes', label: t('ai.import.targetWishes') }, { value: 'ideas', label: t('ai.import.targetIdeas') }]} />
           </Field>
           {tabs.length > 1 && <PillTabs label={t('ai.import.source')} value={tab} onChange={setTab} items={tabs} />}
+          <AiNotice feature={tab === 'text' ? 'text_import' : 'image_import'} />
           {tab === 'text' ? (
             <Field label={t('ai.import.text')} hint={t('ai.import.textHint')}>
               <textarea className="input min-h-40" autoFocus placeholder={t('ai.import.textPlaceholder')} value={text} onChange={(e) => setText(e.target.value)} />
@@ -291,7 +364,7 @@ export function AiImportButton({ init, onDone, label }: { init?: ImportInit; onD
   if (!ai.enabled || !(ai.features.text_import || ai.features.image_import)) return null
   return (
     <>
-      <Button icon={Sparkles} onClick={() => setOpen(true)}>{label ?? t('ai.import.title')}</Button>
+      <Button icon={Sparkles} title={`${t('ai.badgeHint')} ${[ai.features.text_import && t('ai.sent.text_import'), ai.features.image_import && t('ai.sent.image_import')].filter(Boolean).join(' ')}`} onClick={() => setOpen(true)}>{label ?? t('ai.import.title')}</Button>
       {open && <ImportDialog init={init} onClose={() => setOpen(false)} onDone={onDone} />}
     </>
   )
@@ -344,7 +417,7 @@ function SuggestDialog({ personId, personName, onClose }: { personId: number; pe
         </Field>
         <Field label={t('ai.suggest.budget')}><input className="input" inputMode="decimal" value={budget} onChange={(e) => setBudget(e.target.value)} /></Field>
       </div>
-      <p className="meta">{t('ai.suggest.privacy', { name: personName })}</p>
+      <p className="meta flex items-start gap-2"><AiBadge feature="suggestions" /><span>{t('ai.suggest.privacy', { name: personName })}</span></p>
       <FormError>{error}</FormError>
       {list && (
         <div className="grid gap-3">
@@ -374,7 +447,7 @@ export function SuggestButton({ personId, personName }: { personId: number; pers
   if (!ai.enabled || !ai.features.suggestions) return null
   return (
     <>
-      <Button icon={Sparkles} onClick={() => setOpen(true)}>{t('ai.suggest.button')}</Button>
+      <Button icon={Sparkles} title={`${t('ai.badgeHint')} ${t('ai.sent.suggestions')}`} onClick={() => setOpen(true)}>{t('ai.suggest.button')}</Button>
       {open && <SuggestDialog personId={personId} personName={personName} onClose={() => setOpen(false)} />}
     </>
   )

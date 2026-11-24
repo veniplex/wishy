@@ -2,7 +2,7 @@
 import { useState } from 'react'
 import { CalendarHeart, Lightbulb, MessageCircle, Pencil, Plus, Users } from 'lucide-react'
 import { Navigate, useParams } from 'react-router-dom'
-import { useStore } from './store'
+import { useRelationshipTypes, useStore } from './store'
 import { t } from './i18n'
 import { countdown, daysUntil, fmtDate, type Occasion } from './lib'
 import { Avatar, Badge, Button, Card, Chip, EmptyState, IconButton, List, Money, Page, PageHeader, Progress, Section, Stat, Stats, ToggleLink } from './ui'
@@ -22,6 +22,7 @@ export function OccasionDetail() {
 function PersonBlock({ o, pid }: { o: Occasion; pid: number }) {
   const { s, person, open, itemState } = useStore()
   const { can, leave } = useLeaveOut()
+  const relTypes = useRelationshipTypes()
   const p = person(pid)!
   const gifts = s.gifts.filter((g) => g.occasion_id === o.id && g.recipient_ids.includes(pid))
   // Ideas meant for this occasion first, then the other open ones of the person
@@ -34,7 +35,7 @@ function PersonBlock({ o, pid }: { o: Occasion; pid: number }) {
       lead={<Avatar p={p} size={44} />}
       title={p.name}
       to={`/gifting/${pid}`}
-      meta={p.relationship}
+      meta={relTypes.labelOf(p.relationship) || undefined}
       status={<PlanBadge gifts={gifts} />}
       menu={can && <LeaveMenu label={t('calendar.plan.leave', { name: p.name })} onLeave={() => void leave(o, pid)} />}
       footer={<PlanButtons personId={pid} occasionId={o.id} />}

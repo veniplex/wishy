@@ -83,7 +83,7 @@ self.addEventListener('fetch', (e) => {
   const url = new URL(request.url)
   if (request.method !== 'GET' || url.origin !== self.location.origin) return
   const p = url.pathname
-  if (/^\/api\/(images|avatars)\//.test(p)) return e.respondWith(image(request, e))
+  if (/^\/api\/(images|avatars|person-photos)\//.test(p)) return e.respondWith(image(request, e))
   if (p.startsWith('/api/') || p === '/healthz' || p === '/readyz' || p.startsWith('/__')) return
   if (p.startsWith('/assets/') || p.startsWith('/icons/')) return e.respondWith(asset(request, e))
   if (request.mode === 'navigate') return e.respondWith(navigate(request))
