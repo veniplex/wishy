@@ -38,9 +38,12 @@ Volume /data
 ## 2. Docker
 
 ```bash
-mkdir -p data && sudo chown 1000:1000 data     # the container runs as user "node" (UID 1000)
 docker compose up -d
 ```
+
+The data lives in the named volume `wishy-data` (mounted at `/data`). `docker compose down -v` deletes it. To use a folder instead,
+create it for the container user `node` (`mkdir data && sudo chown 1000:1000 data`) and mount `./data:/data`.
+Files can be copied out with `docker compose cp wishy:/data/backups ./`.
 
 `docker-compose.yml` uses `ghcr.io/veniplex/wishy:latest` (variable `WISHY_IMAGE`) and already sets
 `cap_drop: [ALL]` and `no-new-privileges`. `read_only: true` + `tmpfs: [/tmp]` is prepared but untested with
@@ -358,8 +361,9 @@ run through it once on a Linux host (throwaway data!):
 
 ```bash
 # 1) Publish two pre-releases (e.g. v1.0.0-rc.1 and v1.0.0-rc.2, channel "prerelease")
-mkdir -p /tmp/wishy-test/data && sudo chown 1000:1000 /tmp/wishy-test/data && cd /tmp/wishy-test
+mkdir -p /tmp/wishy-test && cd /tmp/wishy-test
 curl -fsSLO https://raw.githubusercontent.com/veniplex/wishy/main/docker-compose.yml
+# Use a host without another Wishy: container and volume have fixed names (wishy, wishy-data); otherwise change both and the port
 # 2) Enable option B (uncomment the docker-proxy block + DOCKER_HOST + network), check the GID:
 stat -c %g /var/run/docker.sock
 WISHY_IMAGE=ghcr.io/veniplex/wishy:1.0.0-rc.1 docker compose up -d
@@ -367,8 +371,8 @@ docker compose logs wishy | grep -iE "docker api|recovery token"   # expected: D
 # 3) In the app: create an admin, test data, set UPDATE_REPO, Admin › Updates → mode "Image" → update
 watch -n1 'docker ps -a --format "table {{.Names}}\t{{.Image}}\t{{.Status}}"'   # old → -old-…, helper, new
 # 4) Check: same name, same ports/volumes/networks/labels, new image by digest
-docker inspect wishy-wishy-1 --format '{{.Image}} {{json .HostConfig.PortBindings}} {{json .NetworkSettings.Networks}}'
-docker inspect wishy-wishy-1 --format '{{index .Config.Labels "com.docker.compose.project"}}'
+docker inspect wishy --format '{{.Image}} {{json .HostConfig.PortBindings}} {{json .NetworkSettings.Networks}}'
+docker inspect wishy --format '{{index .Config.Labels "com.docker.compose.project"}}'
 docker ps -a | grep -E "updater|old" && echo "ERROR: leftovers" || echo "cleaned up"
 docker compose up -d   # must NOT reset the container to an older version (image: …:latest)
 # 5) Test the rollback: publish a deliberately broken release (pre-release, e.g. healthz returns 500),

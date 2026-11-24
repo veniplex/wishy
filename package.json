@@ -2,6 +2,7 @@
   "name": "wishy",
   "private": true,
   "version": "1.0.0",
+  "license": "AGPL-3.0-only",
   "description": "Wishy – self-hosted app for wishlists, gift ideas and shared gift planning",
   "repository": {
     "type": "git",

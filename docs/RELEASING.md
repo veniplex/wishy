@@ -11,8 +11,7 @@ Versions are plain semver (`1.2.3`, `1.3.0-rc.1`); every release is cut by hand,
 
 ## 1. One-time setup
 
-1. **Create the repository:** `veniplex/wishy`, public, default branch `main`. Add a `LICENSE` file before the first
-   push (the README refers to it).
+1. **Create the repository:** `veniplex/wishy`, public, default branch `main`.
 2. **Generate the signing key** (see section 2) and commit `launcher/update-key.pub`.
 3. **Push:** `git remote add origin git@github.com:veniplex/wishy.git && git push -u origin main`.
 4. **Settings › Actions › General:** set workflow permissions to *Read repository contents and packages permissions*

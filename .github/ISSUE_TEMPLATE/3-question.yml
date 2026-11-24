@@ -1,0 +1,31 @@
+name: ❓ Question
+description: Help with installing, configuring or using Wishy
+labels: [question]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The [README](https://github.com/veniplex/wishy#readme) and the [operations guide](https://github.com/veniplex/wishy/blob/main/docs/operations.md) answer many questions.
+
+        Issues are public: please leave out passwords, tokens, e-mail addresses and names.
+  - type: textarea
+    id: question
+    attributes:
+      label: Your question
+    validations:
+      required: true
+  - type: textarea
+    id: tried
+    attributes:
+      label: What have you tried?
+  - type: input
+    id: version
+    attributes:
+      label: Wishy version
+      placeholder: "1.0.0"
+  - type: textarea
+    id: config
+    attributes:
+      label: Configuration
+      description: The relevant part of your Compose file, without secrets. It is formatted as code automatically.
+      render: yaml
