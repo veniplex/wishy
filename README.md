@@ -8,6 +8,7 @@
 
 [![CI](https://github.com/veniplex/wishy/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/veniplex/wishy/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/veniplex/wishy?color=c4381f)](https://github.com/veniplex/wishy/releases)
+[![License](https://img.shields.io/badge/license-AGPL--3.0-c4381f)](LICENSE)
 [![Image](https://img.shields.io/badge/image-ghcr.io%2Fveniplex%2Fwishy-c4381f?logo=docker&logoColor=white)](https://github.com/veniplex/wishy/pkgs/container/wishy)
 
 [Quick start](#quick-start) · [Features](#features) · [Configuration](#configuration) · [Operations guide](docs/operations.md) · [Changelog](CHANGELOG.md)
@@ -228,19 +229,23 @@ to need:
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | – | Google sign-in |
 | `AI_PROVIDER` / `AI_API_KEY` / `AI_MODEL` / `AI_BASE_URL` | – | AI features |
 | `BACKUP_PASSPHRASE` | – | Overrides the passphrase set in *Admin › Backups* |
-| `DOCKER_HOST` | – | Docker API for image updates (see the security notes) |
+| `DOCKER_HOST` | – | Docker API for image updates (see [Security](#security)) |
 
 Without Docker (`npm start`), `HOST` defaults to `127.0.0.1` and `DATA_DIR` to `./data`. More about updates, proxies and
 backups: [docs/operations.md](docs/operations.md).
 
-## Security notes
+## Security
+
+> **Found a vulnerability?** Please report it privately via
+> [Report a vulnerability](https://github.com/veniplex/wishy/security/advisories/new), not as a public issue. Details:
+> [SECURITY.md](SECURITY.md).
 
 - **Back up `secret.key` (in `DATA_DIR`).** It seals 2FA secrets, passphrases and tokens. Unencrypted backups
   deliberately do not contain it; encrypted backups cannot be restored without the passphrase.
 - **Docker access for image updates is powerful** (roughly root on the host). Without it, Wishy only updates the app and
   npm packages. If you grant it, use the restricted socket proxy from `docker-compose.yml` (option B), not the directly
   mounted socket. See [docs/operations.md](docs/operations.md#32-image-updates-whole-container).
-- Only run behind HTTPS; please report vulnerabilities privately: [SECURITY.md](SECURITY.md).
+- Only run behind HTTPS.
 
 ## Development
 
@@ -264,4 +269,10 @@ supervision, updates), `scripts/` (release, tests).
 
 ## License
 
-No license has been chosen yet, so all rights are reserved for now.
+Copyright © 2026 veniplex
+
+Wishy is free software under the [GNU Affero General Public License, version 3](LICENSE) (`AGPL-3.0-only`). You may use, study,
+change and share it. If you distribute it, or let others use a modified version over a network, you must offer them the
+complete source code of that version under the same license. There is no warranty. This summary does not replace the license.
+
+Third-party packages keep their own licenses.

@@ -12,7 +12,7 @@
 //
 // Output in --out: wishy-<v>.tar.gz, .tar.gz.sha256, wishy-<v>.release.json (+ .sig with a key)
 // Version: plain semver, default is the version from package.json.
-// Contents: dist/, server/, launcher/, package.json, package-lock.json, release.json and the PRODUCTION
+// Contents: dist/, server/, launcher/, package.json, package-lock.json, LICENSE, release.json and the PRODUCTION
 // dependencies according to package-lock.json (copied from the local node_modules - run `npm ci` first).
 import fs from 'node:fs'
 import path from 'node:path'
@@ -49,6 +49,7 @@ function stage(dir) {
   if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true })
   fs.mkdirSync(dir, { recursive: true })
   for (const d of ['dist', 'server', 'launcher']) fs.cpSync(path.join(root, d), path.join(dir, d), { recursive: true, dereference: false })
+  fs.copyFileSync(path.join(root, 'LICENSE'), path.join(dir, 'LICENSE')) // every copy must come with the license text
   fs.copyFileSync(path.join(root, 'package-lock.json'), path.join(dir, 'package-lock.json'))
   fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ ...pkg, version }, null, 2) + '\n')
 

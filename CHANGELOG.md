@@ -4,6 +4,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versio
 The section of a version is used automatically as the release notes when releasing
 (`scripts/release-notes.mjs`); the heading must read exactly `## [x.y.z]`.
 
+## [Unreleased]
+
+- License: GNU Affero General Public License v3 (`AGPL-3.0-only`); the license text is part of the release archive and the image.
+- Extended security policy for reporting vulnerabilities.
+
 ## [1.0.0] – 2026-11-24
 
 First public version.
