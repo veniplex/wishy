@@ -1,16 +1,19 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Check, Heart, Lightbulb, Loader2, Plus, Trash2, X } from 'lucide-react'
-import { AiMark, ImportDialog, useAiStatus } from './ai'
+import { AiMark, ImportDialog, LinkModePicker, setLinkFallback, useLinkMode } from './ai'
 import { ApiError, api, errMsg, isOffline, type MyWishlist, type Wish, type WishlistsOverview } from './api'
 import { realId } from './offline/engine'
 import { useReachable, useRealState } from './offline/hooks'
-import { useLinkOptions, useOccasionTypes, useStore } from './store'
+import { useLinkOptions, useOccasionTypes, useRelationshipTypes, useStore } from './store'
 import { fmtDateTime, getLocale, t, type TKey } from './i18n'
-import { PAYMENT_METHODS, RELATIONSHIPS, RELATION_GROUPS, STATUS_STEPS, fmtDate, groupOf, joinNames, parseNum, shares, statusIndex, statusInfo, type Audience, type Gift, type Giver, type Item, type Occasion, type Person } from './lib'
+import { PAYMENT_METHODS, STATUS_STEPS, fmtDate, joinNames, parseNum, shares, statusIndex, statusInfo, type Audience, type Gift, type Giver, type Item, type Occasion, type Person } from './lib'
 import { shareState } from './split'
 import { Badge, Button, Checkbox, DatePicker, Field, FormError, List, Modal, Money, NameForm, Row, Segmented, Select, SuggestInput, Thumb, ToggleLink, useConfirm, useToast } from './ui'
 import { OccasionSelect, OccasionTypeSelect, PersonPicker, PersonSelect, defaultDate } from './pickers'
+import { EmojiPicker } from './emoji-picker'
+import { PersonPhotoField } from './person-photo'
+import { GiftDetail, ItemDetail } from './detail-dialog'
 
 function useForm<T extends object>(init: T) {
   const [f, setF] = useRealState(init)
@@ -80,9 +83,10 @@ export function useLinkPreview(onResult: (p: Preview) => void) {
   const [error, setError] = useState('')
   const [pv, setPv] = useState<Preview | null>(null)
   const [aiUsed, setAiUsed] = useState(false)
-  const ai = useAiStatus()
-  const useAi = ai.enabled && ai.features.link_import
+  const lm = useLinkMode()
+  const useAi = lm.available && lm.mode === 'ai'
   const last = useRef('')
+  const lastUrl = useRef('')
   const seq = useRef(0)
   const cb = useRef(onResult)
   cb.current = onResult
@@ -91,24 +95,30 @@ export function useLinkPreview(onResult: (p: Preview) => void) {
   reachable.current = up
   const run = async (raw: string) => {
     const url = raw.trim()
-    if (!url || url === last.current || !reachable.current) return // offline: the link is kept, only the preview is skipped
-    last.current = url
+    if (!url || url + (useAi ? '|ai' : '|builtin') === last.current || !reachable.current) return // offline: the link is kept, only the preview is skipped
+    last.current = url + (useAi ? '|ai' : '|builtin') // a changed mode reads the same link again
+    lastUrl.current = url
     const mine = ++seq.current
     setLoading(true)
     setError('')
     try {
       let data: Preview | null = null
       let viaAi = false
+      let fell = false
       if (useAi) {
-        // AI cleans up title, description and image; on errors (e.g. limit, provider) fall back to the classic preview
+        // AI cleans up title, description and image; on errors (e.g. limit, provider) fall back to the built-in parser
         try {
-          data = await api<Preview>('POST', '/api/ai/extract-link', { url })
-          viaAi = true
+          const r = await api<Preview & { via?: string; fallback?: string }>('POST', '/api/ai/extract-link', { url, mode: 'ai' })
+          data = r
+          viaAi = r.via !== 'builtin'
+          fell = !viaAi
         } catch (e) {
           if (mine !== seq.current) return
           if (e instanceof ApiError && e.status === 400) throw e
+          fell = true
         }
       }
+      setLinkFallback(fell)
       if (!data) {
         data = await api<Preview>('POST', '/api/preview', { url })
       }
@@ -125,6 +135,13 @@ export function useLinkPreview(onResult: (p: Preview) => void) {
       if (mine === seq.current) setLoading(false)
     }
   }
+  // Switching between built-in and AI reads the link that was last imported again
+  const firstMode = useRef(true)
+  useEffect(() => {
+    if (firstMode.current) { firstMode.current = false; return }
+    if (lastUrl.current) void run(lastUrl.current)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [useAi])
   /** Event handlers for the link field: on paste and on blur */
   const bind = {
     onPaste: (e: React.ClipboardEvent<HTMLInputElement>) => {
@@ -139,10 +156,15 @@ export function useLinkPreview(onResult: (p: Preview) => void) {
 }
 
 export function LinkStatus({ loading, error, ai }: { loading: boolean; error: string; ai?: boolean }) {
-  if (loading) return <span className="flex items-center gap-1.5 meta mt-1.5"><Loader2 size={13} className="animate-spin" /> {t('common.loading')}</span>
-  if (error) return <FormError>{error}</FormError>
-  if (ai) return <div className="mt-1.5"><AiMark>{t('forms.preview.aiCleaned')}</AiMark></div>
-  return null
+  return (
+    <>
+      {loading ? <span className="flex items-center gap-1.5 meta mt-1.5"><Loader2 size={13} className="animate-spin" /> {t('common.loading')}</span>
+        : error ? <FormError>{error}</FormError>
+        : null}
+      {!loading && !error && ai && <div className="mt-1.5"><AiMark>{t('forms.preview.aiCleaned')}</AiMark></div>}
+      <LinkModePicker />
+    </>
+  )
 }
 
 export function PreviewCard({ image, title, shop, price, onRemoveImage }: { image: string | null; title: string | null; shop: string | null; price: string; onRemoveImage: () => void }) {
@@ -169,6 +191,7 @@ export function PreviewCard({ image, title, shop, price, onRemoveImage }: { imag
 export function PersonForm({ initial, focus }: { initial?: Partial<Person>; focus?: 'birthday' }) {
   const { call, close, s } = useStore()
   const links = useLinkOptions()
+  const relTypes = useRelationshipTypes()
   const confirm = useConfirm()
   const [pickUser, setPickUser] = useState(0)
   const [f, set] = useForm({
@@ -176,7 +199,6 @@ export function PersonForm({ initial, focus }: { initial?: Partial<Person>; focu
     name: initial?.name ?? '',
     emoji: initial?.emoji ?? '',
     relationship: initial?.relationship ?? '',
-    relationship_group: initial ? groupOf(initial as Person) : 'other',
     birthday: initial?.birthday ?? '',
     yearly_budget: str(initial?.yearly_budget),
     notes: initial?.notes ?? '',
@@ -184,7 +206,6 @@ export function PersonForm({ initial, focus }: { initial?: Partial<Person>; focu
   })
   const isMe = !!initial?.is_me
   const id = realId(initial?.id)
-  const [groupTouched, setGroupTouched] = useState(!!initial?.id)
   // Opened to add the birthday: the dialog starts there (after the dialog's own initial focus)
   useEffect(() => { if (focus === 'birthday') document.getElementById('person-birthday')?.focus() }, [focus])
   const save = async () => {
@@ -218,7 +239,7 @@ export function PersonForm({ initial, focus }: { initial?: Partial<Person>; focu
     if (!(await confirm({ title: t('forms.person.unlinkTitle'), text: t('forms.person.unlinkText', { name: f.name || initial?.name || '' }), confirmLabel: t('forms.person.unlinkTitle'), destructive: true }))) return
     if (await call('POST', `/api/persons/${id}/unlink`)) close()
   }
-  const moreOpen = !!(f.emoji || f.yearly_budget || f.archived || initial?.linked_user_id)
+  const moreOpen = !!(f.emoji || initial?.photo_url || f.yearly_budget || f.archived || initial?.linked_user_id)
   return (
     <FormModal
       title={id ? t('forms.person.edit') : t('forms.person.new')}
@@ -227,7 +248,8 @@ export function PersonForm({ initial, focus }: { initial?: Partial<Person>; focu
       moreOpen={moreOpen}
       more={
         <>
-          <Field label={t('forms.person.emoji')}><input className="input text-center w-24" maxLength={4} placeholder="🙂" value={f.emoji} onChange={(e) => set('emoji', e.target.value)} /></Field>
+          <Field label={t('forms.person.photo')} group><PersonPhotoField person={{ ...initial, name: f.name || initial?.name, emoji: f.emoji }} id={id ?? null} /></Field>
+          <Field label={t('forms.person.emoji')} group hint={t('forms.person.emojiHint')}><EmojiPicker value={f.emoji} onChange={(e) => set('emoji', e)} label={t('forms.person.emoji')} /></Field>
           {!isMe && (
             <Field label={t('forms.person.yearlyBudget')} error={bad(f.yearly_budget) && t('forms.numErr')}>
               <input className={`input ${bad(f.yearly_budget) ? 'input-invalid' : ''}`} inputMode="decimal" placeholder={t('forms.person.budgetPlaceholder')} value={f.yearly_budget} onChange={(e) => set('yearly_budget', e.target.value)} />
@@ -265,26 +287,14 @@ export function PersonForm({ initial, focus }: { initial?: Partial<Person>; focu
           <input className="input" type="email" autoComplete="off" placeholder={t('wishlists.share.emailPlaceholder')} value={f.email} onChange={(e) => set('email', e.target.value)} />
         </Field>
       )}
-      <div className="grid sm:grid-cols-2 gap-3">
-        <Field label={t('forms.person.relationship')} hint={t('forms.person.relationshipHint')}>
-          <SuggestInput
-            aria-label={t('forms.person.relationship')}
-            suggestions={RELATIONSHIPS.map((r) => r.label)}
-            placeholder={t('forms.person.relationshipPlaceholder')}
-            value={f.relationship}
-            onChange={(v) => {
-              const known = RELATIONSHIPS.find((r) => r.label.toLowerCase() === v.trim().toLowerCase())
-              set('relationship', v)
-              if (known && !groupTouched) set('relationship_group', known.group)
-            }}
-          />
-        </Field>
-        <Field label={t('forms.person.group')}>
-          <Select value={f.relationship_group} onChange={(e) => { setGroupTouched(true); set('relationship_group', e.target.value) }}>
-            {RELATION_GROUPS.map((g) => <option key={g.id} value={g.id}>{g.label}</option>)}
-          </Select>
-        </Field>
-      </div>
+      <Field label={t('forms.person.relationship')} hint={s.permissions.manage_persons ? t('forms.person.relationshipHint') : undefined}>
+        <Select
+          aria-label={t('forms.person.relationship')}
+          value={f.relationship}
+          options={[{ value: '', label: t('forms.person.relationshipNone') }, ...relTypes.all.filter((x) => !x.hidden || x.key === initial?.relationship).map((x) => ({ value: x.key, label: x.hidden ? t('settings.space.rel.hiddenName', { name: x.label }) : x.label }))]}
+          onChange={(e) => set('relationship', e.target.value)}
+        />
+      </Field>
       <Field label={t('forms.notes')}>
         <textarea className="input min-h-24" placeholder={t('forms.person.notesPlaceholder')} value={f.notes} onChange={(e) => set('notes', e.target.value)} />
       </Field>
@@ -1033,6 +1043,8 @@ export function DialogHost() {
   if (dialog.type === 'add') return <AddMenu key="add" />
   if (dialog.type === 'wish') return <AddMenu key="wish" start="lists" />
   if (dialog.type === 'ai-import') return <ImportDialog key="ai" init={dialog.init} onClose={close} />
+  if (dialog.type === 'item-detail') return <ItemDetail key={`item-detail-${dialog.initial.id}`} initial={dialog.initial} />
+  if (dialog.type === 'gift-detail') return <GiftDetail key={`gift-detail-${dialog.initial.id}`} initial={dialog.initial} />
   const key = `${dialog.type}-${dialog.initial?.id ?? 'new'}`
   if (dialog.type === 'person') return <PersonForm key={key} initial={dialog.initial} focus={dialog.focus} />
   if (dialog.type === 'occasion') return <OccasionForm key={key} initial={dialog.initial} />

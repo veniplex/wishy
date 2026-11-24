@@ -3,7 +3,9 @@ import { useFeatures } from '../features'
 import { t, useT } from '../i18n'
 import { useReachable } from '../offline/hooks'
 import { NeedsConnection } from '../offline/ui'
-import { Page, PageHeader, type TabItem } from '../ui'
+import { Page, PageHeader, SectionLayout, type SectionNavItem } from '../ui'
+import { KeyRound, Palette, Sparkles, User, Users } from 'lucide-react'
+import { AiTab } from './ai-tab'
 import { AccountTab } from './account-tab'
 import { AppearanceTab } from './appearance-tab'
 import { SpaceTab } from './space-tab'
@@ -16,16 +18,17 @@ import { ApiKeysTab } from './api-tab'
 export function SettingsLayout() {
   useT()
   const f = useFeatures()
-  const tabs: TabItem[] = [
-    { to: '/settings/account', label: t('settings.tabs.account') },
-    { to: '/settings/appearance', label: t('settings.tabs.appearance') },
-    { to: '/settings/space', label: t('settings.tabs.space') },
-    ...(f.api ? [{ to: '/settings/api-keys', label: t('settings.tabs.api') }] : []),
+  const items: SectionNavItem[] = [
+    { to: '/settings/account', label: t('settings.tabs.account'), icon: User },
+    { to: '/settings/appearance', label: t('settings.tabs.appearance'), icon: Palette },
+    { to: '/settings/space', label: t('settings.tabs.space'), icon: Users },
+    { to: '/settings/ai', label: t('settings.tabs.ai'), icon: Sparkles },
+    ...(f.api ? [{ to: '/settings/api-keys', label: t('settings.tabs.api'), icon: KeyRound }] : []),
   ]
   return (
     <Page>
-      <PageHeader title={t('settings.title')} tabs={tabs} />
-      <Outlet />
+      <PageHeader title={t('settings.title')} />
+      <SectionLayout label={t('settings.tabs.label')} items={items}><Outlet /></SectionLayout>
     </Page>
   )
 }
@@ -44,6 +47,7 @@ export const settingsRoutes = (
     <Route path="account" element={<AccountTab />} />
     <Route path="appearance" element={<AppearanceTab />} />
     <Route path="space" element={<SpaceTab />} />
+    <Route path="ai" element={<AiTab />} />
     <Route path="api-keys" element={<ApiRoute />} />
     <Route path="*" element={<Navigate to="/settings/account" replace />} />
   </Route>

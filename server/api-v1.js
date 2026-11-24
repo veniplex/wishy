@@ -13,6 +13,7 @@ import { preview } from './preview.js'
 import { HttpError, sha256, ipKey } from './util.js'
 import { defaultName, userLocale } from './locale.js'
 import { typeDisplayName } from './occasion-types.js'
+import { relationshipDisplayName } from './relationship-core.js'
 import { getAiConfig, isUsable } from './ai/settings.js'
 import { fetchPage, extractLink, extractText } from './ai/features.js'
 import { gate, tracked } from './ai/guard.js'
@@ -248,7 +249,8 @@ async function capture(req) {
   // AI: automatic when unspecified if allowed for the user; explicit true without permission -> 403
   const aiAllowed = isUsable(getAiConfig()) && effectiveFeatures(req.user).ai
   if (raw.use_ai === true && !aiAllowed) gate('text_import', req.user)
-  const useAi = raw.use_ai === false ? false : aiAllowed
+  // Unspecified: texts use the AI when allowed; links follow the admin default for link imports (built-in or AI)
+  const useAi = raw.use_ai === false ? false : raw.use_ai === true ? aiAllowed : aiAllowed && (!url || getAiConfig().linkMode === 'ai')
   const warnings = []
   const actor = { userId: req.user.id, via: 'api' }
 
@@ -385,7 +387,14 @@ r.post('/capture', wrap(async (req, res) => {
 r.get('/persons', wrap((req, res) => {
   const s = resolveSpace(req, req.query.space)
   const st = getState(ctxFor(req, s))
-  res.json(st.persons.map((p) => ({ id: p.id, name: p.name, birthday: p.birthday, relationship: p.relationship, relationship_group: p.relationship_group, archived: !!p.archived, is_me: !!p.is_me })))
+  const locale = userLocale(req.user.id)
+  const types = new Map(st.relationship_types.map((t) => [t.key, t]))
+  // relationship = display name (as before), relationship_type = key of the space's relationship type (null = none)
+  res.json(st.persons.map((p) => ({
+    id: p.id, name: p.name, birthday: p.birthday,
+    relationship: p.relationship ? (types.has(p.relationship) ? relationshipDisplayName(types.get(p.relationship), locale) : p.relationship) : null,
+    relationship_type: p.relationship ?? null, archived: !!p.archived, is_me: !!p.is_me,
+  })))
 }))
 
 r.get('/ideas', wrap((req, res) => {

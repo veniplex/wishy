@@ -8,6 +8,7 @@ import { authRoutes, startup } from './auth.js'
 import { googleRoutes } from './google.js'
 import { twoFactorRoutes, twoFactorGate } from './twofactor-routes.js'
 import { avatarRoutes } from './avatars.js'
+import { personPhotoRoutes } from './person-photos.js'
 import { applyTrustProxy, healthRoutes, proxyRoutes } from './proxy.js'
 import { securityHeaders } from './headers.js'
 import { getSys } from './config.js'
@@ -43,13 +44,14 @@ app.use('/api', csrfGuard)
 // Session BEFORE the body parser: large bodies are only allowed for signed-in users and only on a few routes.
 // Default limit 200 KB (enough for any normal JSON request); exceptions (without login always 200 KB):
 //   POST /api/import 20 MB (space import) ·
-//   POST /api/ai/extract-image 8 MB (base64 image, max. 5 MB raw data) · POST /api/account/avatar 6 MB (base64, max. 2 MB raw data).
+//   POST /api/ai/extract-image 8 MB (base64 image, max. 5 MB raw data) · POST /api/account/avatar and POST /api/persons/:id/photo 6 MB (base64, max. 2 MB raw data).
 // The backup upload (/api/admin/backups/upload) is a raw stream and not affected.
 const smallJson = express.json({ limit: '200kb' })
 const BIG_BODIES = [
   { re: /^\/api\/import$/, limit: '20mb', json: express.json({ limit: '20mb' }) },
   { re: /^\/api\/ai\/extract-image$/, limit: '8mb', json: express.json({ limit: '8mb' }) },
   { re: /^\/api\/account\/avatar$/, limit: '6mb', json: express.json({ limit: '6mb' }) },
+  { re: /^\/api\/persons\/\d+\/photo$/, limit: '6mb', json: express.json({ limit: '6mb' }) },
 ]
 const jsonBody = (req, res, next) => {
   if (req.method !== 'POST' || !req.user) return smallJson(req, res, next)
@@ -69,6 +71,7 @@ googleRoutes(app)
 twoFactorRoutes(app)
 sessionRoutes(app)
 avatarRoutes(app)
+personPhotoRoutes(app)
 proxyRoutes(app)
 spaceRoutes(app)
 wishlistRoutes(app)

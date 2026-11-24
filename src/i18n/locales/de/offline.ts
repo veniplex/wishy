@@ -77,7 +77,6 @@ export default {
   'field.yearly_budget': 'Jahresbudget',
   'field.archived': 'Archiviert',
   'field.relationship': 'Beziehung',
-  'field.relationship_group': 'Gruppe',
   'field.email': 'E-Mail',
   'field.type': 'Art',
   'field.date': 'Datum',

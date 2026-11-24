@@ -10,7 +10,7 @@ import { AdminAiPrompts } from './ai-prompts'
 
 /**
  * Admin › AI: provider, features, limits, prices, currency and usage analytics (ai-usage.tsx).
- * Prices are in USD; costs and the cost cap are recorded in the cost currency (ai_cost_currency).
+ * Prices, costs and the cost cap are all in the cost currency (ai_cost_currency); changing it with existing data asks for a one-time rate.
  */
 const AI_ENV: Record<string, string> = { ai_provider: 'AI_PROVIDER', ai_model: 'AI_MODEL', ai_api_key: 'AI_API_KEY', ai_base_url: 'AI_BASE_URL' }
 const FEATURES = ['link_import', 'text_import', 'image_import', 'suggestions'] as const
@@ -20,7 +20,7 @@ interface AiCfg extends AiAdmin {
   ai_monthly_user_limit: number | null
   ai_monthly_cost_cap: number | null
   ai_cost_currency: string
-  ai_cost_rate: number
+  ai_convert_needed: boolean
   ai_prices: Prices
 }
 interface PriceRow { id: string; input: string; output: string }
@@ -35,11 +35,12 @@ export function AdminAi() {
   useT()
   const toast = useToast()
   const [cfg, setCfg] = useState<AiCfg | null>(null)
-  const [f, setF] = useState({ enabled: false, provider: 'anthropic', model: '', key: '', baseUrl: '', features: { link_import: true, text_import: true, image_import: true, suggestions: true }, limit: '', userLimit: '', costCap: '', currency: 'USD', rate: '1' })
+  const [f, setF] = useState({ enabled: false, provider: 'anthropic', model: '', key: '', baseUrl: '', features: { link_import: true, text_import: true, image_import: true, suggestions: true }, linkMode: 'ai' as 'ai' | 'builtin', limit: '', userLimit: '', costCap: '', currency: 'USD', rate: '' })
   const [prices, setPrices] = useState<PriceRow[]>([])
   const [error, setError] = useState('')
   const [test, setTest] = useState<{ ok: boolean; latency_ms: number; model: string | null; error?: string; error_code?: string } | null>(null)
   const [testing, setTesting] = useState(false)
+  const [usageKey, setUsageKey] = useState(0) // remount the usage analytics after a save (the cost currency may have changed)
   const [tab, setTab] = useState<'settings' | 'prompts'>('settings')
   const [promptsSeen, setPromptsSeen] = useState(false) // prompts stay mounted after the first open so drafts are not lost when switching tabs
   const switchTab = (v: 'settings' | 'prompts') => { setTab(v); if (v === 'prompts') setPromptsSeen(true) }
@@ -47,11 +48,11 @@ export function AdminAi() {
   const apply = (c: AiCfg) => {
     setCfg(c)
     setF({
-      enabled: c.ai_enabled, provider: c.ai_provider, model: c.ai_model, key: '', baseUrl: c.ai_base_url, features: c.ai_features,
+      enabled: c.ai_enabled, provider: c.ai_provider, model: c.ai_model, key: '', baseUrl: c.ai_base_url, features: c.ai_features, linkMode: c.ai_link_mode ?? 'ai',
       limit: c.ai_monthly_request_limit == null ? '' : String(c.ai_monthly_request_limit),
       userLimit: c.ai_monthly_user_limit == null ? '' : String(c.ai_monthly_user_limit),
       costCap: c.ai_monthly_cost_cap == null ? '' : String(c.ai_monthly_cost_cap),
-      currency: c.ai_cost_currency || 'USD', rate: String(c.ai_cost_rate ?? 1),
+      currency: c.ai_cost_currency || 'USD', rate: '',
     })
     setPrices(toRows(c.ai_prices ?? {}))
   }
@@ -62,12 +63,16 @@ export function AdminAi() {
   const envHint = (k: string) => (locked(k) ? t('admin.envLocked', { name: AI_ENV[k] }) : undefined)
   const activeModel = f.model.trim() || prov?.default_model || ''
   const costCurrency = f.currency.trim() || 'USD'
+  const switching = !!cfg && costCurrency !== cfg.ai_cost_currency
+  const needsRate = switching && cfg.ai_convert_needed // one-time rate to convert recorded costs, the cap and the prices
 
   const save = async (extra: object = {}) => {
     setError('')
     try {
       // Changing the currency converts the stored cap on the server – unless the admin typed a new cap, which counts in the new currency
-      const keepCap = !!cfg && costCurrency !== cfg.ai_cost_currency && f.costCap === (cfg.ai_monthly_cost_cap == null ? '' : String(cfg.ai_monthly_cost_cap))
+      const keepCap = switching && f.costCap === (cfg.ai_monthly_cost_cap == null ? '' : String(cfg.ai_monthly_cost_cap))
+      // Prices that were not touched are converted by the server together with the currency; edited ones count in the new currency
+      const keepPrices = switching && JSON.stringify(prices) === JSON.stringify(toRows(cfg.ai_prices ?? {}))
       const pr: Prices = {}
       for (const r of prices) {
         if (!r.id.trim() && !r.input.trim() && !r.output.trim()) continue
@@ -79,17 +84,19 @@ export function AdminAi() {
         ai_model: f.model.trim() || null,
         ai_base_url: f.baseUrl.trim() || null,
         ai_features: f.features,
+        ai_link_mode: f.linkMode,
         ai_monthly_request_limit: optNum(f.limit),
         ai_monthly_user_limit: optNum(f.userLimit),
         ...(keepCap ? {} : { ai_monthly_cost_cap: optNum(f.costCap) }),
         ai_cost_currency: costCurrency,
-        ai_cost_rate: costCurrency === 'USD' ? null : optNum(f.rate),
-        ai_prices: pr,
+        ...(needsRate ? { ai_cost_rate: optNum(f.rate) } : {}),
+        ...(keepPrices ? {} : { ai_prices: pr }),
         ...(f.key.trim() ? { ai_api_key: f.key.trim() } : {}),
         ...extra,
       }))
       toast(t('admin.saved'), 'ok')
       resetAiStatus()
+      setUsageKey((k) => k + 1)
     } catch (e) {
       setError(errMsg(e))
     }
@@ -166,6 +173,9 @@ export function AdminAi() {
                   </div>
                 ))}
               </div>
+              <Field label={t('ai.admin.linkMode')} hint={t('ai.admin.linkModeHint')} group>
+                <Segmented label={t('ai.admin.linkMode')} value={f.linkMode} onChange={(v) => setF({ ...f, linkMode: v })} options={[{ value: 'builtin', label: t('ai.admin.linkMode.builtin') }, { value: 'ai', label: t('ai.admin.linkMode.ai') }]} />
+              </Field>
               <div className="grid gap-4 sm:grid-cols-3">
                 <Field label={t('aiUsage.admin.limit')} hint={t('aiUsage.admin.limitHint', { count: cfg.requests_this_month })}>
                   <input className="input" inputMode="numeric" placeholder={t('aiUsage.admin.unlimited')} value={f.limit} onChange={(e) => setF({ ...f, limit: e.target.value })} />
@@ -190,13 +200,19 @@ export function AdminAi() {
               )}
               <div className="space-y-2">
                 <div className="hidden sm:grid grid-cols-[minmax(0,1fr)_7rem_7rem_2.5rem] gap-2 meta font-semibold px-0.5">
-                  <span>{t('aiUsage.prices.model')}</span><span>{t('aiUsage.prices.input')}</span><span>{t('aiUsage.prices.output')}</span><span />
+                  <span>{t('aiUsage.prices.model')}</span><span>{t('aiUsage.prices.input', { currency: cfg.ai_cost_currency })}</span><span>{t('aiUsage.prices.output', { currency: cfg.ai_cost_currency })}</span><span />
                 </div>
                 {prices.map((r, i) => (
-                  <div key={i} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_2.5rem] sm:grid-cols-[minmax(0,1fr)_7rem_7rem_2.5rem] gap-2 items-center">
+                  <div key={i} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_2.5rem] sm:grid-cols-[minmax(0,1fr)_7rem_7rem_2.5rem] gap-2 items-end">
                     <input className="input col-span-3 sm:col-span-1" aria-label={t('aiUsage.prices.model')} placeholder="model-id" autoComplete="off" value={r.id} onChange={(e) => setRow(i, { id: e.target.value })} />
-                    <input className="input" inputMode="decimal" aria-label={t('aiUsage.prices.input')} placeholder={t('aiUsage.prices.input')} value={r.input} onChange={(e) => setRow(i, { input: e.target.value })} />
-                    <input className="input" inputMode="decimal" aria-label={t('aiUsage.prices.output')} placeholder={t('aiUsage.prices.output')} value={r.output} onChange={(e) => setRow(i, { output: e.target.value })} />
+                    <label className="grid gap-1 min-w-0">
+                      <span className="meta sm:hidden">{t('aiUsage.prices.input', { currency: cfg.ai_cost_currency })}</span>
+                      <input className="input" inputMode="decimal" aria-label={t('aiUsage.prices.input', { currency: cfg.ai_cost_currency })} placeholder={t('aiUsage.prices.input', { currency: cfg.ai_cost_currency })} value={r.input} onChange={(e) => setRow(i, { input: e.target.value })} />
+                    </label>
+                    <label className="grid gap-1 min-w-0">
+                      <span className="meta sm:hidden">{t('aiUsage.prices.output', { currency: cfg.ai_cost_currency })}</span>
+                      <input className="input" inputMode="decimal" aria-label={t('aiUsage.prices.output', { currency: cfg.ai_cost_currency })} placeholder={t('aiUsage.prices.output', { currency: cfg.ai_cost_currency })} value={r.output} onChange={(e) => setRow(i, { output: e.target.value })} />
+                    </label>
                     <IconButton icon={Trash2} label={t('aiUsage.prices.remove', { model: r.id || '…' })} onClick={() => setPrices(prices.filter((_, k) => k !== i))} />
                   </div>
                 ))}
@@ -205,10 +221,10 @@ export function AdminAi() {
               <Button icon={Plus} onClick={() => setPrices([...prices, { id: '', input: '', output: '' }])}>{t('aiUsage.prices.add')}</Button>
               <div className="grid gap-4 sm:grid-cols-2 pt-2 border-t border-line">
                 <Field label={t('aiUsage.prices.currency')} hint={t('aiUsage.prices.currencyHint')}>
-                  <input className="input" maxLength={5} autoComplete="off" value={f.currency} onChange={(e) => { const currency = e.target.value.toUpperCase(); setF({ ...f, currency, rate: currency.trim() === cfg?.ai_cost_currency ? String(cfg.ai_cost_rate) : '' }) }} />
+                  <input className="input" maxLength={5} autoComplete="off" value={f.currency} onChange={(e) => { const currency = e.target.value.toUpperCase(); setF({ ...f, currency, rate: '' }) }} />
                 </Field>
-                {costCurrency !== 'USD' && (
-                  <Field label={t('aiUsage.prices.rate', { currency: costCurrency })} hint={t('aiUsage.prices.rateHint')}>
+                {needsRate && (
+                  <Field label={t('aiUsage.prices.rate', { from: cfg.ai_cost_currency, currency: costCurrency })} hint={t('aiUsage.prices.rateHint')}>
                     <input className="input" inputMode="decimal" required value={f.rate} onChange={(e) => setF({ ...f, rate: e.target.value })} />
                   </Field>
                 )}
@@ -221,7 +237,7 @@ export function AdminAi() {
         </form>
       )}
 
-      <AiUsageAnalytics />
+      <AiUsageAnalytics key={usageKey} />
       </div>
       {promptsSeen && <div className={tab === 'prompts' ? '' : 'hidden'}><AdminAiPrompts /></div>}
     </div>

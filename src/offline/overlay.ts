@@ -19,7 +19,7 @@ const without = (ids: number[], id: number) => ids.filter((x) => x !== id)
 const patch = (rows: Row[], id: number, fn: (r: Row) => Row) => rows.map((r) => (r.id === id ? fn(r) : r))
 
 const COLS = {
-  person: ['name', 'birthday', 'emoji', 'color', 'notes', 'yearly_budget', 'archived', 'linked_user_id', 'relationship', 'relationship_group', 'email'],
+  person: ['name', 'birthday', 'emoji', 'color', 'notes', 'yearly_budget', 'archived', 'linked_user_id', 'relationship', 'email'],
   occasion: ['name', 'type', 'date', 'recurring', 'person_id', 'budget', 'notes', 'audience'],
   item: ['person_id', 'mentioned', 'title', 'notes', 'url', 'price', 'priority', 'status', 'occasion_id', 'source', 'image_url', 'currency'],
   gift: ['title', 'notes', 'url', 'shop', 'occasion_id', 'item_id', 'price', 'status', 'payer_id', 'date', 'image_url', 'ordered_at', 'order_number', 'carrier',

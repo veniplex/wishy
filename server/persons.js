@@ -1,4 +1,6 @@
 import { db, tx, logGiftEvent } from './db.js'
+import { removeImageFile } from './image-files.js'
+import { bad } from './util.js'
 
 const all = (sql, ...p) => db.prepare(sql).all(...p)
 const get = (sql, ...p) => db.prepare(sql).get(...p)
@@ -11,7 +13,31 @@ const copyOccasionRows = (fromOccasion, toOccasion) =>
 const copyPersonRows = (fromPerson, toPerson) =>
   db.prepare(`INSERT INTO occasion_persons (occasion_id, person_id, excluded) SELECT occasion_id, ?, excluded FROM occasion_persons WHERE person_id=? ${KEEP_PARTICIPATION}`).run(toPerson, fromPerson)
 
-const FILL = ['birthday', 'emoji', 'color', 'notes', 'yearly_budget', 'relationship', 'relationship_group', 'email']
+// ---------- Person photos (files in DATA_DIR/avatars, see person-photos.js) ----------
+/** Public view of a person row: no file name, only the cache-busted URL of the photo. */
+export function withPhotoUrl({ photo_file, ...p }) {
+  return { ...p, photo_url: photo_file ? `/api/person-photos/${p.id}?v=${photo_file.slice(0, 8)}` : null }
+}
+/** File names of the photos in a space (collect BEFORE deleting the persons, remove the files afterwards). */
+export const spacePhotoFiles = (spaceId) => all('SELECT photo_file FROM persons WHERE space_id=? AND photo_file IS NOT NULL', spaceId).map((r) => r.photo_file)
+export const removePhotoFiles = (names) => names.forEach(removeImageFile)
+
+// ---------- Emoji ----------
+const segmenter = typeof Intl.Segmenter === 'function' ? new Intl.Segmenter(undefined, { granularity: 'grapheme' }) : null
+/** One emoji (a single grapheme, ZWJ sequences included). Returns the trimmed value, or null when `strict` is off and it is invalid. */
+export function cleanEmoji(v, strict = true) {
+  if (v === null || v === undefined) return null
+  const s = String(v).trim()
+  if (!s) return null
+  const n = segmenter ? [...segmenter.segment(s)].length : [...s].length
+  if (n > 1 || s.length > 32 || /[\p{Cc}<>]/u.test(s)) {
+    if (strict) throw bad('Please choose a single emoji', 'emoji_invalid')
+    return null
+  }
+  return s
+}
+
+const FILL = ['birthday', 'emoji', 'photo_file', 'color', 'notes', 'yearly_budget', 'relationship', 'email']
 
 /**
  * Merges person dropId into keepId (same space): all references move to keepId,
@@ -35,6 +61,9 @@ export function mergePersons(spaceId, keepId, dropId, userId) {
     if (Object.keys(upd).length) {
       db.prepare(`UPDATE persons SET ${Object.keys(upd).map((c) => `${c}=?`).join(',')} WHERE id=?`).run(...Object.values(upd), keepId)
     }
+
+    // The photo of the dropped person moves along if the kept one has none; otherwise its file is deleted
+    if (!blank(keep.photo_file) && !blank(drop.photo_file)) removeImageFile(drop.photo_file)
 
     // Ideas
     db.prepare('UPDATE items SET person_id=? WHERE person_id=?').run(keepId, dropId)

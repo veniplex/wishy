@@ -20,7 +20,7 @@ function unitOf(kind: Kind, key: string) {
 
 /** Everything a user can change on a record (deleting one that was changed meanwhile is a conflict) */
 const UNITS: Record<Kind, string[]> = {
-  person: ['name', 'birthday', 'emoji', 'color', 'notes', 'yearly_budget', 'archived', 'relationship', 'relationship_group', 'email'],
+  person: ['name', 'birthday', 'emoji', 'color', 'notes', 'yearly_budget', 'archived', 'relationship', 'email'],
   occasion: ['name', 'type', 'date', 'recurring', 'budget', 'notes', 'participants'],
   item: ['person_id', 'mentioned', 'title', 'notes', 'url', 'price', 'priority', 'status', 'occasion_id', 'source', 'image_url', 'currency'],
   gift: ['title', 'notes', 'url', 'shop', 'occasion_id', 'item_id', 'price', 'status', 'date', 'image_url', 'order_number', 'carrier', 'tracking_number', 'tracking_url',
@@ -38,7 +38,6 @@ function normKey(key: string, v: unknown): unknown {
       .map((g) => ({ person_id: g.person_id, amount: g.amount === '' || g.amount == null ? null : Number(g.amount) }))
       .sort((a, b) => a.person_id - b.person_id)
   }
-  if (key === 'relationship_group') return v || 'other' // no group counts as "other"
   if (typeof v === 'boolean') return v ? 1 : 0
   if (typeof v === 'string') return v.trim() || null
   return v ?? null

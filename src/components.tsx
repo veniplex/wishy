@@ -4,7 +4,8 @@ import { occasionIconByName } from './occasion-icons'
 import { useOccasionTypes, useStore } from './store'
 import { t, useT, type TKey, type TParams } from './i18n'
 import { GIFT_STATUS, costFor, countdown, daysUntil, fmtDate, isCommitted, isLeftOutBirthday, joinNames, statusInfo, sum, type Gift, type Item, type Occasion } from './lib'
-import { Badge, Button, IconButton, Menu, MenuItem, Money, Progress, Row, RowLink, Stars, Thumb, tintOf } from './ui'
+import { Badge, Button, IconButton, Menu, MenuItem, Money, Progress, Row, RowLink, Stars, Thumb, tintOf, type BadgeTone } from './ui'
+import type { EntryKind } from './detail-model'
 import { CostSplit } from './split'
 
 /** Re-exported for the calendar views */
@@ -23,6 +24,19 @@ export function rich(key: TKey, parts: Record<string, ReactNode>, params: TParam
 export function OccasionTypeIcon({ icon, size = 16, className }: { icon: string | null | undefined; size?: number; className?: string }) {
   const Icon = occasionIconByName(icon)
   return <Icon size={size} className={className} aria-hidden />
+}
+
+const KIND: Record<EntryKind | 'wish', { tone: BadgeTone; icon: typeof Lightbulb; label: () => string }> = {
+  idea: { tone: 'warn', icon: Lightbulb, label: () => t('give.kind.idea') },
+  gift: { tone: 'accent', icon: GiftIcon, label: () => t('give.kind.gift') },
+  wish: { tone: 'info', icon: Heart, label: () => t('give.kind.wish') },
+}
+
+/** "Idea" / "Gift": an idea is not decided yet, a gift is planned or decided (token colours + icon, never colour alone) */
+export function KindBadge({ kind }: { kind: EntryKind | 'wish' }) {
+  useT()
+  const k = KIND[kind]
+  return <Badge tone={k.tone} icon={k.icon}>{k.label()}</Badge>
 }
 
 /** Status as a badge button; opens a popover menu with all statuses. */
@@ -66,7 +80,7 @@ const ExternalIcon = ({ url }: { url: string }) => (
 export const giftFromIdea = (i: Item): Partial<Gift> => ({ title: i.title, price: i.price, url: i.url, image_url: i.image_url, item_id: i.id, recipient_ids: [i.person_id], occasion_id: i.occasion_id ?? undefined })
 
 /** `except`: the person whose block the row sits in – the recipients line then only names the others ("also for …") */
-export function GiftRow({ g, hideOccasion, detail, except }: { g: Gift; hideOccasion?: boolean; detail?: boolean; except?: number }) {
+export function GiftRow({ g, hideOccasion, detail, except, kind }: { g: Gift; hideOccasion?: boolean; detail?: boolean; except?: number; kind?: boolean }) {
   const { s, person, occasion, occasionTitle, open } = useStore()
   useT()
   const [expanded, setExpanded] = useState(false)
@@ -79,7 +93,7 @@ export function GiftRow({ g, hideOccasion, detail, except }: { g: Gift; hideOcca
     <Row
       lead={<Thumb src={g.image_url} icon={GiftIcon} />}
       title={g.title}
-      onClick={() => open({ type: 'gift', initial: g })}
+      onClick={() => open({ type: 'gift-detail', initial: g })}
       titleSuffix={
         <>
           {g.url && <ExternalIcon url={g.url} />}
@@ -88,6 +102,7 @@ export function GiftRow({ g, hideOccasion, detail, except }: { g: Gift; hideOcca
       }
       meta={
         <>
+          {kind && <><KindBadge kind="gift" />{' '}</>}
           {recipients.length ? t(except != null ? 'gifts.alsoFor' : 'gifts.for', { names: joinNames(recipients.map((p) => p!.name)) }) : except == null ? t('gifts.noRecipient') : null}
           {!hideOccasion && o && <>{(recipients.length > 0 || except == null) && ' · '}<RowLink to={`/calendar/${o.id}`}>{occasionTitle(o)}</RowLink></>}
         </>
@@ -135,7 +150,7 @@ export function ItemActions({ i }: { i: Item }) {
 const isInactive = (state: string) => state === 'done' || state === 'discarded'
 const PlannedBadge = () => <Badge tone={statusInfo('planned').tone}>{t('status.item.planned')}</Badge>
 
-export function ItemRow({ i, showPerson, hideOccasion }: { i: Item; showPerson?: boolean; hideOccasion?: boolean }) {
+export function ItemRow({ i, showPerson, hideOccasion, kind }: { i: Item; showPerson?: boolean; hideOccasion?: boolean; kind?: boolean }) {
   const { person, occasion, occasionTitle, open, itemState } = useStore()
   useT()
   const p = person(i.person_id)
@@ -146,11 +161,11 @@ export function ItemRow({ i, showPerson, hideOccasion }: { i: Item; showPerson?:
     <Row
       lead={<Thumb src={i.image_url} icon={i.mentioned ? MessageCircle : Lightbulb} />}
       title={i.title}
-      onClick={() => open({ type: 'item', initial: i })}
+      onClick={() => open({ type: 'item-detail', initial: i })}
       dim={isInactive(state)}
       strike={state === 'discarded'}
       titleSuffix={<><Stars n={i.priority} />{!!i.mentioned && <Badge tone="info">{t('give.item.mentioned')}</Badge>}{i.url && <ExternalIcon url={i.url} />}</>}
-      meta={sub}
+      meta={kind ? <><KindBadge kind="idea" />{sub && ' '}{sub}</> : sub}
       trailing={(i.price != null || state === 'planned') && <>{i.price != null && <Money n={i.price} currency={i.currency} strong />}{state === 'planned' && <PlannedBadge />}</>}
       actions={<ItemActions i={i} />}
     />
@@ -158,23 +173,24 @@ export function ItemRow({ i, showPerson, hideOccasion }: { i: Item; showPerson?:
 }
 
 /** Idea as a tile (person page): image or icon, title, price, actions */
-export function IdeaCard({ i }: { i: Item }) {
+export function IdeaCard({ i, kind }: { i: Item; kind?: boolean }) {
   const { s, open, itemState, call } = useStore()
   useT()
   const state = itemState(i)
   const inactive = isInactive(state)
   return (
     <article className={`card p-3 pb-4 flex flex-col gap-3 min-w-0 ${inactive ? 'opacity-70' : ''}`}>
-      <button type="button" className="media h-28 rounded-2xl overflow-hidden grid place-items-center cursor-pointer text-muted" style={{ background: tintOf(i.id) }} onClick={() => open({ type: 'item', initial: i })} aria-label={t('give.item.editAria', { title: i.title })}>
+      <button type="button" className="media h-28 rounded-2xl overflow-hidden grid place-items-center cursor-pointer text-muted" style={{ background: tintOf(i.id) }} onClick={() => open({ type: 'item-detail', initial: i })} aria-label={t('give.item.detailAria', { title: i.title })}>
         {i.image_url ? <img src={i.image_url} alt="" loading="lazy" className="size-full object-cover" /> : (i.mentioned ? <MessageCircle size={38} strokeWidth={1.5} className="text-ink" /> : <Lightbulb size={38} strokeWidth={1.5} className="text-ink" />)}
       </button>
       <div className="px-1.5 flex flex-col gap-2 flex-1">
         <div className="flex items-start gap-1.5">
-          <button type="button" className={`font-semibold text-left leading-snug break-words hover:text-accent cursor-pointer flex-1 ${state === 'discarded' ? 'line-through' : ''}`} onClick={() => open({ type: 'item', initial: i })}>{i.title}</button>
+          <button type="button" className={`font-semibold text-left leading-snug break-words hover:text-accent cursor-pointer flex-1 ${state === 'discarded' ? 'line-through' : ''}`} onClick={() => open({ type: 'item-detail', initial: i })}>{i.title}</button>
           <Stars n={i.priority} />
           {i.url && <ExternalIcon url={i.url} />}
         </div>
         <div className="flex flex-wrap gap-1.5">
+          {kind && <KindBadge kind="idea" />}
           {!!i.mentioned && <Badge tone="accent" icon={Heart}>{t('give.item.mentionedSelf')}</Badge>}
           {state === 'planned' && <PlannedBadge />}
         </div>

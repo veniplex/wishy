@@ -2,7 +2,7 @@ import { getSys, setSys, getSecretSys, setSecretSys } from '../config.js'
 import { bad } from '../util.js'
 import { tx } from '../db.js'
 import { getPrices, validatePrices, trackingCurrency } from './prices.js'
-import { reconcileCurrency } from './usage.js'
+import { convertCurrency, hasConvertibleData } from './usage.js'
 
 export const MOCK = process.env.AI_TEST_MOCK === '1' // for automated tests only
 
@@ -22,6 +22,9 @@ export const PROVIDERS = {
 
 export const FEATURES = ['link_import', 'text_import', 'image_import', 'suggestions']
 export const DEFAULT_PROVIDER = 'anthropic'
+/** How a link import reads a page: the app's own parser (Open Graph, JSON-LD, meta tags) or the AI. Admin default; the user can choose per import. */
+export const LINK_MODES = ['builtin', 'ai']
+export const DEFAULT_LINK_MODE = 'ai' // as before: with AI configured, links are read by it
 
 const ENV = { ai_provider: 'AI_PROVIDER', ai_api_key: 'AI_API_KEY', ai_model: 'AI_MODEL', ai_base_url: 'AI_BASE_URL' }
 const envVal = (k) => {
@@ -52,6 +55,7 @@ export function getAiConfig() {
     limit: rawLimit !== null && Number.isInteger(limit) && limit >= 0 ? limit : null,
     userLimit: posInt(getSys('ai_monthly_user_limit')),
     costCap: posNum(getSys('ai_monthly_cost_cap')),
+    linkMode: LINK_MODES.includes(getSys('ai_link_mode')) ? getSys('ai_link_mode') : DEFAULT_LINK_MODE,
   }
 }
 
@@ -74,12 +78,13 @@ export function adminView() {
     ai_api_key_set: !!c.apiKey, // the key itself is never returned
     ai_base_url: c.baseUrl || '',
     ai_features: c.features,
+    ai_link_mode: c.linkMode, // default for link imports: 'builtin' | 'ai'
     ai_monthly_request_limit: c.limit,
     ai_monthly_user_limit: c.userLimit,
     ai_monthly_cost_cap: c.costCap, // per user and month, in the tracking currency
-    ai_cost_currency: trackingCurrency().code, // costs are recorded in it
-    ai_cost_rate: trackingCurrency().rate, // 1 USD = ? ai_cost_currency (always 1 for USD)
-    ai_prices: getPrices(), // { model: { input_per_mtok, output_per_mtok, cache_read_per_mtok?, cache_write_per_mtok? } } in USD per 1M tokens
+    ai_cost_currency: trackingCurrency().code, // prices, costs and the cap are in it
+    ai_convert_needed: hasConvertibleData(), // costs, cap or prices exist: a currency change needs a one-time exchange rate
+    ai_prices: getPrices(), // { model: { input_per_mtok, output_per_mtok, cache_read_per_mtok?, cache_write_per_mtok? } } per 1M tokens in ai_cost_currency
     env_locked: aiEnvLocked(),
     configured: !missingConfig(c),
     missing: missingConfig(c),
@@ -147,14 +152,12 @@ export function saveAdminSettings(b) {
     costCurrency = b.ai_cost_currency === null || b.ai_cost_currency === '' ? null : String(b.ai_cost_currency).trim().toUpperCase()
     if (costCurrency !== null && !/^[A-Z]{3,5}$/.test(costCurrency)) throw Object.assign(bad('Invalid currency'), { code: 'invalid_value' })
   }
-  // The currency the costs are tracked in after saving; anything but USD needs an exchange rate
+  // A different currency needs a one-time rate (1 old = ? new) if there is anything to convert (costs, cap or prices); it is not stored
   const curNow = trackingCurrency()
-  const nextCode = costCurrency !== undefined ? costCurrency || 'USD' : curNow.code
-  if (nextCode !== 'USD' && (costCurrency !== undefined || costRate !== undefined)) {
-    // The stored rate belongs to the current currency: a different one needs its own
-    const stored = nextCode === curNow.code && Number(getSys('ai_cost_rate')) > 0 ? Number(getSys('ai_cost_rate')) : null
-    const rate = costRate !== undefined ? costRate : stored
-    if (rate === null) throw bad('Please enter an exchange rate for this currency', 'cost_rate_required', { currency: nextCode })
+  const nextCode = costCurrency ? costCurrency : curNow.code
+  const switching = costCurrency !== undefined && nextCode !== curNow.code
+  if (switching && hasConvertibleData() && costRate == null) {
+    throw bad('Please enter an exchange rate for the new currency', 'cost_rate_required', { currency: nextCode, from: curNow.code })
   }
   const prices = b.ai_prices !== undefined ? validatePrices(b.ai_prices) : undefined
   let features
@@ -163,6 +166,7 @@ export function saveAdminSettings(b) {
     features = { ...getAiConfig().features }
     for (const f of FEATURES) if (b.ai_features[f] !== undefined) features[f] = !!b.ai_features[f]
   }
+  if (b.ai_link_mode !== undefined && !LINK_MODES.includes(b.ai_link_mode)) throw bad('Invalid link import default (built-in or ai)', 'ai_link_mode_invalid')
   if (b.ai_enabled !== undefined && typeof b.ai_enabled !== 'boolean') throw bad('Invalid value for "AI enabled"', 'invalid_value')
   let apiKey
   if (b.ai_api_key === null) apiKey = null
@@ -195,15 +199,15 @@ export function saveAdminSettings(b) {
     if (apiKey !== undefined && !locked.has('ai_api_key')) setSecretSys('ai_api_key', apiKey)
     if (has('ai_base_url')) put('ai_base_url', baseUrl || null)
     if (features) setSys('ai_features', features)
+    if (b.ai_link_mode !== undefined) setSys('ai_link_mode', b.ai_link_mode)
     if (b.ai_monthly_request_limit !== undefined) setSys('ai_monthly_request_limit', limit)
     if (userLimit !== undefined) setSys('ai_monthly_user_limit', userLimit)
     if (costCap !== undefined) setSys('ai_monthly_cost_cap', costCap)
-    if (nextCode === 'USD') {
-      if (costRate !== undefined || costCurrency !== undefined) setSys('ai_cost_rate', null) // USD is always 1; the next non-USD currency needs its own rate
-    } else if (costRate !== undefined) setSys('ai_cost_rate', costRate)
-    if (costCurrency !== undefined) setSys('ai_cost_currency', costCurrency)
+    if (switching) {
+      // Converts costs, cap and prices; a cap or price table sent in this request is already in the new currency
+      setSys('ai_cost_currency', nextCode)
+      convertCurrency(nextCode, costRate ?? 1, { cap: costCap === undefined, prices: prices === undefined })
+    } else if (costCurrency !== undefined) setSys('ai_cost_currency', costCurrency)
     if (prices !== undefined) setSys('ai_prices', prices)
-    // A changed currency converts the recorded costs (and the cap unless it was given in the new currency in this request)
-    reconcileCurrency({ convertCap: costCap === undefined })
   })
 }

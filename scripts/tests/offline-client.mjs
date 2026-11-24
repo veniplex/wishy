@@ -17,7 +17,7 @@ const eq = (name, a, b) => t(name, JSON.stringify(a) === JSON.stringify(b), { go
 
 // ---------- Fixtures ----------
 const TODAY = '2026-06-15'
-const person = (id, name, more = {}) => ({ id, name, is_me: 0, linked_user_id: null, birthday: null, emoji: null, color: null, notes: null, yearly_budget: null, archived: 0, relationship: null, relationship_group: null, email: null, ...more })
+const person = (id, name, more = {}) => ({ id, name, is_me: 0, linked_user_id: null, birthday: null, emoji: null, color: null, notes: null, yearly_budget: null, archived: 0, relationship: null, email: null, ...more })
 const occasion = (id, name, date, more = {}) => ({ id, name, type: 'other', date, recurring: 0, series_id: null, person_id: null, budget: null, notes: null, audience: 'selected', person_ids: [], excluded_ids: [], ...more })
 const item = (id, title, more = {}) => ({ id, person_id: null, occasion_id: null, mentioned: 0, title, notes: null, url: null, price: null, priority: 2, status: 'open', source: null, image_url: null, currency: null, inbox: 0, created_at: '2026-01-01 10:00:00', ...more })
 const gift = (id, title, more = {}) => ({
@@ -59,7 +59,7 @@ function op(method, url, body, data = {}, more = {}) {
   eq('route new wish', parseWrite('POST', '/api/wishlists/-3/wishes'), { kind: 'wish', action: 'create', target: 0, sub: -3 })
   eq('route reorder', parseWrite('POST', '/api/wishlists/3/reorder'), { kind: 'list', action: 'reorder', target: 3, sub: 0 })
   const online = [['POST', '/api/wishlists/3/share'], ['POST', '/api/wishes/3/reserve'], ['DELETE', '/api/wishlists/3/access/me'], ['POST', '/api/persons/3/link'], ['POST', '/api/settle'], ['PUT', '/api/settings'],
-    ['POST', '/api/wishes'], ['POST', '/api/persons/3'], ['PUT', '/api/persons'], ['POST', '/api/occasion-types'], ['POST', '/api/ai/suggest'], ['PUT', '/api/account'], ['POST', '/api/gifts/5/givers/9/other']]
+    ['POST', '/api/wishes'], ['POST', '/api/persons/3'], ['PUT', '/api/persons'], ['POST', '/api/occasion-types'], ['POST', '/api/relationship-types'], ['POST', '/api/ai/suggest'], ['PUT', '/api/account'], ['POST', '/api/gifts/5/givers/9/other']]
   for (const [m, u] of online) t(`online only: ${m} ${u}`, parseWrite(m, u) === null)
 }
 
@@ -157,7 +157,7 @@ function op(method, url, body, data = {}, more = {}) {
 // ---------- Diff ----------
 {
   const s = state()
-  const form = { name: 'Anna', emoji: '', relationship: '', relationship_group: 'other', birthday: '', yearly_budget: null, notes: 'Likes tea', archived: false, email: '' }
+  const form = { name: 'Anna', emoji: '', relationship: '', birthday: '', yearly_budget: null, notes: 'Likes tea', archived: false, email: '' }
   const o = op('PUT', '/api/persons/2', form, { state: s })
   eq('only the changed field', [o.body, o.base, o.mine], [{ notes: 'Likes tea' }, { notes: { notes: null } }, { notes: { notes: 'Likes tea' } }])
   eq('no change', Object.keys(op('PUT', '/api/persons/2', { ...form, notes: '' }, { state: s }).base), [])

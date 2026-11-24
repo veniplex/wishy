@@ -269,6 +269,10 @@ export interface AiStatus {
   enabled: boolean
   features: { link_import: boolean; text_import: boolean; image_import: boolean; suggestions: boolean }
   provider_label: string | null
+  global_enabled?: boolean // set up and enabled by the admin
+  user_enabled?: boolean // not switched off for this account
+  provider?: string | null // provider kind, never keys
+  link_mode?: 'builtin' | 'ai' // admin default for link imports
 }
 export interface AiProvider { id: string; label: string; default_model: string | null; model_hint: string | null; needs_base_url?: boolean }
 export interface AiAdmin {
@@ -278,6 +282,7 @@ export interface AiAdmin {
   ai_api_key_set: boolean
   ai_base_url: string
   ai_features: AiStatus['features']
+  ai_link_mode: 'builtin' | 'ai'
   ai_monthly_request_limit: number | null
   env_locked: string[]
   configured: boolean

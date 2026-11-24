@@ -23,13 +23,13 @@ export function loadDemo(spaceId, mePersonId, locale = 'en') {
   tx(() => {
     const me = mePersonId
     db.prepare('UPDATE persons SET emoji=?, birthday=? WHERE id=?').run('😎', bday(30, 120), me)
-    const anna = insert('persons', { name: 'Anna', relationship: L('Partnerin', 'Partner'), relationship_group: 'partner', emoji: '💜', birthday: bday(29, 18), yearly_budget: 300, notes: L('Mag: Keramik, Tee, Bouldern\nSchuhgröße 39, Größe M\nKein Parfum!', 'Likes: ceramics, tea, bouldering\nShoe size 7, size M\nNo perfume!') })
-    const mama = insert('persons', { name: L('Mama', 'Mum'), relationship: L('Mutter', 'Mother'), relationship_group: 'family', emoji: '🌷', birthday: bday(58, 75), yearly_budget: 120 })
-    const papa = insert('persons', { name: L('Papa', 'Dad'), relationship: L('Vater', 'Father'), relationship_group: 'family', emoji: '🔧', birthday: bday(61, 200), yearly_budget: 120 })
-    const tom = insert('persons', { name: 'Tom', relationship: L('Freund', 'Friend'), relationship_group: 'friends', emoji: '🎸', birthday: bday(31, 40), yearly_budget: 50 })
+    const anna = insert('persons', { name: 'Anna', relationship: 'partner', emoji: '💜', birthday: bday(29, 18), yearly_budget: 300, notes: L('Mag: Keramik, Tee, Bouldern\nSchuhgröße 39, Größe M\nKein Parfum!', 'Likes: ceramics, tea, bouldering\nShoe size 7, size M\nNo perfume!') })
+    const mama = insert('persons', { name: L('Mama', 'Mum'), relationship: 'parent', emoji: '🌷', birthday: bday(58, 75), yearly_budget: 120 })
+    const papa = insert('persons', { name: L('Papa', 'Dad'), relationship: 'parent', emoji: '🔧', birthday: bday(61, 200), yearly_budget: 120 })
+    const tom = insert('persons', { name: 'Tom', relationship: 'friend', emoji: '🎸', birthday: bday(31, 40), yearly_budget: 50 })
 
     // A colleague who is left out of Christmas: Christmas is open to everyone, minus the left out ones
-    const lena = insert('persons', { name: 'Lena', relationship: L('Kollegin', 'Colleague'), relationship_group: 'work', emoji: '☕', birthday: bday(34, 260) })
+    const lena = insert('persons', { name: 'Lena', relationship: 'colleague', emoji: '☕', birthday: bday(34, 260) })
     const christmas = insert('occasions', { name: L('Weihnachten', 'Christmas'), type: 'christmas', date: xmas, recurring: 1, series_id: randomUUID(), budget: 400, audience: 'all' })
     setOccasionParticipants(christmas, 'all', { excludedIds: [lena] })
     const lastXmas = insert('occasions', { name: L('Weihnachten', 'Christmas'), type: 'christmas', date: `${Number(xmas.slice(0, 4)) - 1}-12-24`, recurring: 1, series_id: db.prepare('SELECT series_id FROM occasions WHERE id=?').get(christmas).series_id, budget: 350 })

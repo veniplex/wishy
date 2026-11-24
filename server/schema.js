@@ -13,8 +13,11 @@
 //
 // Assigned numbers:
 //   1  initial schema (baseline)
+//   2  persons.photo_file (person photos)
+//   3  relationship types per space (persons.relationship = type key; relationship_group no longer used)
 import { createHash } from 'node:crypto'
-import { db } from './db.js'
+import { db, tx } from './db.js'
+import { migrateRelationshipTypes } from './relationship-core.js'
 
 export const schemaVersion = (handle = db) => Number(handle.prepare('PRAGMA user_version').get().user_version) || 0
 
@@ -51,3 +54,22 @@ export function schemaFingerprint(handle = db) {
 }
 
 bumpSchema(1, 'initial')
+
+// 2: person photos. Fresh databases already have the column (db.js); older ones get it added (additive only).
+if (schemaVersion() < 2) {
+  tx(() => {
+    if (!db.prepare('PRAGMA table_info(persons)').all().some((c) => c.name === 'photo_file')) db.exec('ALTER TABLE persons ADD COLUMN photo_file TEXT')
+    bumpSchema(2, 'person-photos')
+  })
+} else bumpSchema(2, 'person-photos')
+
+
+// 3: relationship types. The table is created by db.js (IF NOT EXISTS); here every space gets its built-in types and the free text in
+// persons.relationship is converted to type keys (distinct values per space, case-insensitive; names of built-ins map to the built-in).
+// persons.relationship_group is simply left unused (no DROP COLUMN). Idempotent: a second run finds only keys.
+if (schemaVersion() < 3) {
+  tx(() => {
+    migrateRelationshipTypes()
+    bumpSchema(3, 'relationship-types')
+  })
+} else bumpSchema(3, 'relationship-types')

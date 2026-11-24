@@ -3,7 +3,8 @@ import { spaceCtx } from '../spaces.js'
 import { HttpError, bad } from '../util.js'
 import { userLocale } from '../locale.js'
 import { AiError, redact } from './errors.js'
-import { getAiConfig, isUsable, missingConfig, missingCode, adminView, saveAdminSettings, PROVIDERS } from './settings.js'
+import { getAiConfig, isUsable, missingConfig, missingCode, adminView, saveAdminSettings, PROVIDERS, LINK_MODES } from './settings.js'
+import { preview } from '../preview.js'
 import { startUsage, finishUsage, monthlyCount, usageReport, monthKey } from './usage.js'
 import { gate, assertLimit, tracked } from './guard.js'
 import { effectiveFeatures } from '../features.js'
@@ -100,21 +101,49 @@ export function aiRoutes(app) {
   // ---- For all signed-in users ----
   app.get('/api/ai/status', requireAuth, (req, res) => {
     const cfg = getAiConfig()
-    const on = isUsable(cfg) && effectiveFeatures(req.user).ai
+    const global = isUsable(cfg)
+    const mine = effectiveFeatures(req.user).ai
+    const on = global && mine
     res.json({
       enabled: on,
+      global_enabled: global, // set up and enabled by the admin
+      user_enabled: mine, // not switched off for this account (besides the global switch)
+      provider: global ? cfg.provider : null, // kind only, never keys or URLs
+      link_mode: cfg.linkMode, // admin default for link imports: 'builtin' | 'ai'
       features: Object.fromEntries(Object.entries(cfg.features).map(([k, v]) => [k, on && v])),
       provider_label: PROVIDERS[cfg.provider]?.label ?? null,
     })
   })
 
   app.post('/api/ai/extract-link', requireAuth, async (req, res) => {
-    const cfg = gate('link_import', req.user)
     const url = req.body?.url
     if (typeof url !== 'string' || !url.trim()) throw bad('Please provide a link', 'url_required')
-    assertLimit(cfg, req.user.id)
-    const src = await fetchPage(url) // same SSRF rules and error messages as /api/preview
-    res.json(await tracked({ userId: req.user.id, via: 'ui' }, 'link_import', cfg, (meter) => extractLink(src, meter, userLocale(req.user.id))))
+    // mode: 'ai' | 'builtin'; omitted = admin default. Built-in never calls the AI. If AI was wanted but is not
+    // available (off, feature off, user off, limit reached), the built-in parser answers and `fallback` says why.
+    const m = req.body?.mode
+    if (m !== undefined && m !== null && !LINK_MODES.includes(m)) throw bad('Invalid mode (ai or builtin)', 'invalid_mode')
+    const want = m ?? getAiConfig().linkMode
+    let fallback = null
+    let cfg = null
+    if (want === 'ai') {
+      try {
+        cfg = gate('link_import', req.user)
+        assertLimit(cfg, req.user.id)
+      } catch (e) {
+        if (!(e instanceof HttpError) || !['ai_disabled', 'ai_feature_disabled', 'ai_disabled_for_user', 'ai_limit_reached'].includes(e.code)) throw e
+        fallback = e.code
+      }
+    }
+    if (cfg) {
+      const src = await fetchPage(url) // same SSRF rules and error messages as /api/preview
+      const r = await tracked({ userId: req.user.id, via: 'ui' }, 'link_import', cfg, (meter) => extractLink(src, meter, userLocale(req.user.id)))
+      return res.json({ ...r, via: 'ai' })
+    }
+    try {
+      res.json({ ...(await preview(url)), via: 'builtin', ...(fallback ? { fallback } : {}) })
+    } catch (e) {
+      throw e.userFacing ? e : bad('Page could not be loaded', 'page_load_failed')
+    }
   })
 
   app.post('/api/ai/extract-text', requireAuth, async (req, res) => {

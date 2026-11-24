@@ -40,7 +40,10 @@ async function load(user: number) {
     const s = await get('/api/state', sp.id)
     if (s) {
       collect(s.items); collect(s.inbox_items ?? []); collect(s.gifts)
-      s.persons.forEach((p: Row) => { if (p.linked_user_id) images.add(`/api/avatars/${p.linked_user_id}`) })
+      s.persons.forEach((p: Row) => {
+        if (p.linked_user_id) images.add(`/api/avatars/${p.linked_user_id}`)
+        if (p.photo_url) images.add(p.photo_url) // content-addressed by ?v=, so a changed photo is simply a new entry
+      })
     }
     await get(`/api/spaces/${sp.id}/members`)
   }

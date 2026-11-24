@@ -516,11 +516,11 @@ async function main() {
     const rows = d.prepare("SELECT * FROM ai_usage WHERE model='mock' AND ok=1 AND feature='text_import' ORDER BY id DESC LIMIT 1").all()
     ok(rows.length === 1, 'mock usage row')
     const u = rows[0]
-    const expect = ((u.input_tokens * 1 + u.output_tokens * 2) / 1e6) * 0.9 // priced in USD, tracked in EUR at 0.9
-    ok(Math.abs(u.cost - expect) < 1e-12 && u.cost > 0, 'cost math (tracked in EUR)', { cost: u.cost, expect, u })
+    const expect = (u.input_tokens * 1 + u.output_tokens * 2) / 1e6 // priced and tracked in EUR
+    ok(Math.abs(u.cost - expect) < 1e-12 && u.cost > 0, 'cost math (EUR prices, tracked in EUR)', { cost: u.cost, expect, u })
     ok(u.via === 'api' || u.via === 'ui', 'via set', u.via)
     const snap = JSON.parse(u.price_snapshot)
-    ok(snap.input_per_mtok === 1 && snap.currency === 'EUR' && snap.rate === 0.9 && u.latency_ms >= 0, 'snapshot (USD prices, currency, rate) + latency', u)
+    ok(snap.input_per_mtok === 1 && snap.currency === 'EUR' && !('rate' in snap) && u.latency_ms >= 0, 'snapshot (prices, currency) + latency', u)
     ok(d.prepare("SELECT COUNT(*) n FROM ai_usage WHERE via='api'").get().n >= 2 && d.prepare("SELECT COUNT(*) n FROM ai_usage WHERE via='ui'").get().n >= 1, 'via ui and api rows')
     // Price missing -> NULL
     d.close()
@@ -648,13 +648,18 @@ async function main() {
   ok(r.data.audit_deleted === 0 && r.data.ai_rows_rolled_up === 0, '0 = keep forever')
 
   section('AI cost currency')
+  const setting = (k) => {
+    const d = rdb()
+    const row = d.prepare('SELECT value FROM system_settings WHERE key=?').get(k)
+    d.close()
+    return row ? JSON.parse(row.value) : null
+  }
   const rawSums = () => {
     const d = rdb()
     const u = d.prepare('SELECT COALESCE(SUM(cost),0) c FROM ai_usage').get().c
     const dl = d.prepare('SELECT COALESCE(SUM(cost),0) c FROM ai_usage_daily').get().c
-    const marker = d.prepare("SELECT value FROM system_settings WHERE key='ai_usage_currency'").get()
     d.close()
-    return { u, d: dl, marker: marker ? JSON.parse(marker.value) : null }
+    return { u, d: dl, marker: setting('ai_usage_currency'), pricesMarker: setting('ai_prices_currency'), prices: setting('ai_prices'), cap: setting('ai_monthly_cost_cap') }
   }
   const near = (a, b) => Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(a), Math.abs(b))
   const aiCfg = async () => (await A.get('/api/admin/ai')).data
@@ -664,23 +669,22 @@ async function main() {
     d.close()
     return row
   }
-  const mockUsd = (row) => (row.input_tokens * 1 + row.output_tokens * 2) / 1e6
+  const mockCost = (row, inP = 1, outP = 2) => (row.input_tokens * inP + row.output_tokens * outP) / 1e6 // the mock price is entered in the cost currency
   r = await aiCfg()
-  ok(r.ai_cost_currency === 'EUR' && r.ai_cost_rate === 0.9, 'state: EUR at 0.9', r)
-  ok(rawSums().marker?.code === 'EUR' && rawSums().marker.rate === 0.9, 'marker ai_usage_currency follows the settings', rawSums())
+  ok(r.ai_cost_currency === 'EUR' && !('ai_cost_rate' in r) && r.ai_prices.mock.input_per_mtok === 1, 'state: EUR prices, no rate in the API', r)
+  ok(rawSums().marker?.code === 'EUR' && rawSums().pricesMarker === 'EUR', 'markers follow the currency', rawSums())
   ok(rawSums().d > 0 && rawSums().u > 0, 'both ai_usage and ai_usage_daily hold costs')
 
-  // The cost cap is compared in the tracking currency: 5% above the EUR amount (i.e. below the same amount in USD) must not block
   r = await B.get('/api/account/ai-usage')
   const bobMonth = r.data.month.cost
   ok(bobMonth > 0 && r.data.currency.code === 'EUR' && !('rate' in r.data.currency), 'own usage: cost + currency code only', r.data)
   await A.put('/api/admin/ai', { ai_monthly_cost_cap: bobMonth * 1.05 })
   r = await B.post('/api/ai/extract-text', { text: 'Cap in EUR', target: 'ideas' })
-  ok(r.status === 200, 'cap 5% above the EUR cost: not blocked (would be blocked if compared in USD)', r)
+  ok(r.status === 200, 'cap 5% above the cost: not blocked', r)
   r = await B.get('/api/account/ai-usage')
   await A.put('/api/admin/ai', { ai_monthly_cost_cap: r.data.month.cost / 2 })
   r = await B.post('/api/ai/extract-text', { text: 'Cap in EUR', target: 'ideas' })
-  ok(r.status === 429 && r.data.code === 'ai_limit_reached', 'cap below the EUR cost blocks', r)
+  ok(r.status === 429 && r.data.code === 'ai_limit_reached', 'cap below the cost blocks', r)
   await A.put('/api/admin/ai', { ai_monthly_cost_cap: null })
 
   // CSV: columns cost + currency
@@ -697,76 +701,62 @@ async function main() {
     ok(Math.abs(total - sm.cost) < 1e-4, 'csv cost sum == summary cost', { total, cost: sm.cost })
   }
 
-  // Rate change only: history untouched, new requests use the new rate
+  // A price edit in the same currency only affects new requests; the cost is price x tokens, without any conversion
   let before = rawSums()
-  r = await A.put('/api/admin/ai', { ai_cost_rate: 0.8 })
-  ok(r.status === 200 && r.data.ai_cost_rate === 0.8 && r.data.ai_cost_currency === 'EUR', 'rate change saved', r.data)
-  let after = rawSums()
-  ok(near(after.u, before.u) && near(after.d, before.d) && after.marker.rate === 0.8 && after.marker.code === 'EUR', 'rate change leaves stored costs, marker rate follows', { before, after })
-  r = await B.post('/api/ai/extract-text', { text: 'New rate', target: 'ideas' })
+  r = await A.put('/api/admin/ai', { ai_prices: { mock: { input_per_mtok: 2, output_per_mtok: 4 } } })
+  ok(r.status === 200 && r.data.ai_prices.mock.output_per_mtok === 4, 'price change saved', r.data)
+  ok(near(rawSums().u, before.u) && near(rawSums().d, before.d), 'price change leaves stored costs', rawSums())
+  r = await B.post('/api/ai/extract-text', { text: 'New price', target: 'ideas' })
   {
     const row = lastMock()
     const snap = JSON.parse(row.price_snapshot)
-    ok(r.status === 200 && near(row.cost, mockUsd(row) * 0.8) && snap.rate === 0.8 && snap.currency === 'EUR', 'new request uses the new rate', { row, snap })
+    ok(r.status === 200 && near(row.cost, mockCost(row, 2, 4)) && snap.currency === 'EUR' && snap.input_per_mtok === 2 && !('rate' in snap), 'new request costs tokens x EUR price', { row, snap })
   }
+  await A.put('/api/admin/ai', { ai_prices: { mock: { input_per_mtok: 1, output_per_mtok: 2 }, 'claude-sonnet-5-5': { input_per_mtok: 2, output_per_mtok: 10 } } })
 
-  // Currency change: ai_usage + ai_usage_daily + cap are converted with newRate / oldRate
+  // Currency change with data: needs a one-time rate; converts costs, cap and prices
   await A.put('/api/admin/ai', { ai_monthly_cost_cap: 10 })
   before = rawSums()
-  r = await A.put('/api/admin/ai', { ai_cost_currency: 'GBP', ai_cost_rate: 0.5 })
-  ok(r.status === 200 && r.data.ai_cost_currency === 'GBP' && r.data.ai_cost_rate === 0.5, 'currency change EUR -> GBP', r.data)
-  after = rawSums()
-  ok(near(after.u, before.u * 0.625) && near(after.d, before.d * 0.625) && after.d > 0, 'ai_usage and ai_usage_daily converted by 0.5 / 0.8', { before, after })
-  ok(r.data.ai_monthly_cost_cap === 6.25 && after.marker.code === 'GBP' && after.marker.rate === 0.5, 'cap converted (10 -> 6.25), marker updated', { cap: r.data.ai_monthly_cost_cap, marker: after.marker })
-  r = await A.get(`/api/admin/ai/usage/summary?from=${from}&to=${to}`)
-  ok(r.data.currency.code === 'GBP' && Math.abs(r.data.cost - (after.u + after.d)) < 1e-6, 'summary in GBP', r.data)
-  // A cap in the same request counts as given in the new currency
-  before = rawSums()
-  r = await A.put('/api/admin/ai', { ai_cost_currency: 'EUR', ai_cost_rate: 0.8, ai_monthly_cost_cap: 3 })
-  after = rawSums()
-  ok(r.status === 200 && r.data.ai_monthly_cost_cap === 3 && near(after.u, before.u * 1.6) && near(after.d, before.d * 1.6), 'cap in the request counts in the new currency, costs converted', { cap: r.data.ai_monthly_cost_cap, before, after })
-  // Back to USD: the rate is forced to 1, whatever is sent
-  before = rawSums()
-  r = await A.put('/api/admin/ai', { ai_cost_currency: 'USD', ai_cost_rate: 0.7 })
-  after = rawSums()
-  ok(r.status === 200 && r.data.ai_cost_currency === 'USD' && r.data.ai_cost_rate === 1 && near(after.u, before.u / 0.8) && near(after.d, before.d / 0.8), 'USD forces rate 1, costs back to USD', { data: r.data, before, after })
-  ok(r.data.ai_monthly_cost_cap === 3.75, 'cap converted back to USD (3 / 0.8)', r.data.ai_monthly_cost_cap)
-  ok(after.marker.code === 'USD' && after.marker.rate === 1, 'marker USD/1', after)
-  r = await B.post('/api/ai/extract-text', { text: 'USD again', target: 'ideas' })
-  {
-    const row = lastMock()
-    ok(r.status === 200 && near(row.cost, mockUsd(row)) && JSON.parse(row.price_snapshot).currency === 'USD', 'USD request costs the plain USD price', row)
-  }
-  await A.put('/api/admin/ai', { ai_monthly_cost_cap: null })
-
-  // A non-USD currency needs a rate
-  before = rawSums()
   for (const [body, label] of [
-    [{ ai_cost_currency: 'EUR' }, 'no rate anywhere'],
-    [{ ai_cost_currency: 'EUR', ai_cost_rate: null }, 'rate null'],
-    [{ ai_cost_currency: 'EUR', ai_cost_rate: '' }, 'rate empty'],
+    [{ ai_cost_currency: 'GBP' }, 'no rate'],
+    [{ ai_cost_currency: 'GBP', ai_cost_rate: null }, 'rate null'],
+    [{ ai_cost_currency: 'GBP', ai_cost_rate: '' }, 'rate empty'],
   ]) {
     r = await A.put('/api/admin/ai', body)
-    ok(r.status === 400 && r.data.code === 'cost_rate_required' && r.data.params?.currency === 'EUR', 'rate required: ' + label, r)
+    ok(r.status === 400 && r.data.code === 'cost_rate_required' && r.data.params?.currency === 'GBP' && r.data.params?.from === 'EUR', 'rate required: ' + label, r)
   }
-  r = await A.put('/api/admin/ai', { ai_cost_currency: 'EUR', ai_cost_rate: 0 })
+  r = await A.put('/api/admin/ai', { ai_cost_currency: 'GBP', ai_cost_rate: 0 })
   ok(r.status === 400 && r.data.code === 'invalid_value', 'rate 0 invalid', r)
+  let after = rawSums()
+  ok((await aiCfg()).ai_cost_currency === 'EUR' && near(after.u, before.u) && near(after.d, before.d) && near(after.prices.mock.input_per_mtok, 1) && after.marker.code === 'EUR', 'rejected requests change nothing', after)
+  r = await A.put('/api/admin/ai', { ai_cost_currency: 'GBP', ai_cost_rate: 0.5 })
+  ok(r.status === 200 && r.data.ai_cost_currency === 'GBP' && !('ai_cost_rate' in r.data), 'currency change EUR -> GBP', r.data)
   after = rawSums()
-  ok((await aiCfg()).ai_cost_currency === 'USD' && near(after.u, before.u) && near(after.d, before.d) && after.marker.code === 'USD', 'rejected requests change nothing', after)
-  r = await A.put('/api/admin/ai', { ai_cost_currency: 'EUR', ai_cost_rate: 0.9 })
-  ok(r.status === 200 && r.data.ai_cost_rate === 0.9, 'EUR with a rate works', r.data)
-  r = await A.put('/api/admin/ai', { ai_cost_currency: 'CHF' })
-  ok(r.status === 400 && r.data.code === 'cost_rate_required' && r.data.params?.currency === 'CHF', 'another currency needs its own rate', r)
+  ok(near(after.u, before.u * 0.5) && near(after.d, before.d * 0.5) && after.d > 0, 'ai_usage and ai_usage_daily converted by 0.5', { before, after })
+  ok(r.data.ai_monthly_cost_cap === 5 && after.marker.code === 'GBP' && after.pricesMarker === 'GBP', 'cap converted (10 -> 5), markers updated', after)
+  ok(near(r.data.ai_prices.mock.input_per_mtok, 0.5) && near(r.data.ai_prices.mock.output_per_mtok, 1) && near(r.data.ai_prices['claude-sonnet-5-5'].output_per_mtok, 5), 'prices converted', r.data.ai_prices)
+  ok(setting('ai_cost_rate') === null, 'the rate is not stored')
+  r = await A.get(`/api/admin/ai/usage/summary?from=${from}&to=${to}`)
+  ok(r.data.currency.code === 'GBP' && Math.abs(r.data.cost - (after.u + after.d)) < 1e-6, 'summary in GBP', r.data)
+  r = await B.post('/api/ai/extract-text', { text: 'GBP request', target: 'ideas' })
+  {
+    const row = lastMock()
+    ok(r.status === 200 && near(row.cost, mockCost(row, 0.5, 1)) && JSON.parse(row.price_snapshot).currency === 'GBP', 'request costs the GBP price', row)
+  }
+  // A cap and prices in the same request count in the new currency (not converted again)
+  before = rawSums()
+  r = await A.put('/api/admin/ai', { ai_cost_currency: 'EUR', ai_cost_rate: 2, ai_monthly_cost_cap: 3, ai_prices: { mock: { input_per_mtok: 1, output_per_mtok: 2 } } })
+  after = rawSums()
+  ok(r.status === 200 && r.data.ai_monthly_cost_cap === 3 && r.data.ai_prices.mock.output_per_mtok === 2 && near(after.u, before.u * 2) && near(after.d, before.d * 2), 'explicit cap and prices count in the new currency, costs converted', { cap: r.data.ai_monthly_cost_cap, before, after })
   r = await A.put('/api/admin/ai', { ai_cost_currency: 'EUR' })
-  ok(r.status === 200 && r.data.ai_cost_rate === 0.9, 'the same currency keeps its stored rate', r.data)
-  r = await A.put('/api/admin/ai', { ai_cost_currency: 'USD' })
-  ok(r.status === 200 && r.data.ai_cost_currency === 'USD', 'back to USD for the migration test')
+  ok(r.status === 200 && near(rawSums().u, after.u), 'the same currency needs no rate and converts nothing', r.data)
+  await A.put('/api/admin/ai', { ai_monthly_cost_cap: null })
 
-  // 1.0.0 database: costs in USD, currency + rate used for display only, no marker -> converted once at startup
+  // Startup migration of databases from 1.0.0 / 1.0.1 (prices in USD, rate in ai_cost_rate, marker ai_prices_currency missing)
   await stop()
-  const asV100 = (settings) => {
+  const legacy = (settings) => {
     const d = rdb()
-    d.prepare("DELETE FROM system_settings WHERE key='ai_usage_currency'").run()
+    for (const k of ['ai_usage_currency', 'ai_prices_currency']) d.prepare('DELETE FROM system_settings WHERE key=?').run(k)
     for (const [k, v] of Object.entries(settings)) {
       if (v === null) d.prepare('DELETE FROM system_settings WHERE key=?').run(k)
       else d.prepare('INSERT INTO system_settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run(k, JSON.stringify(v))
@@ -774,29 +764,63 @@ async function main() {
     d.close()
     return rawSums()
   }
+  const usd = { mock: { input_per_mtok: 1, output_per_mtok: 2 }, 'claude-sonnet-5-5': { input_per_mtok: 2, output_per_mtok: 10, cache_read_per_mtok: 0.2 } }
   {
-    const b = asV100({ ai_cost_currency: 'EUR', ai_cost_rate: 0.92, ai_monthly_cost_cap: 5 })
+    // 1.0.1: costs already in EUR (marker present), prices in USD, rate 0.8
+    const b = legacy({ ai_cost_currency: 'EUR', ai_cost_rate: 0.8, ai_monthly_cost_cap: 5, ai_prices: usd, ai_usage_currency: { code: 'EUR', rate: 0.8 } })
     await start(DATA)
     const a = rawSums()
-    ok(near(a.u, b.u * 0.92) && near(a.d, b.d * 0.92) && a.d > 0, '1.0.0 database: costs converted at startup', { b, a })
-    ok(a.marker?.code === 'EUR' && a.marker.rate === 0.92, '1.0.0 database: marker written', a)
-    const cfg = await aiCfg()
-    ok(cfg.ai_monthly_cost_cap === 4.6 && cfg.ai_cost_currency === 'EUR' && cfg.ai_cost_rate === 0.92, '1.0.0 database: cap converted (5 -> 4.6)', cfg)
+    ok(near(a.u, b.u) && near(a.d, b.d) && a.cap === 5 && a.marker.code === 'EUR', '1.0.1 database: costs and cap untouched', { b, a })
+    ok(near(a.prices.mock.input_per_mtok, 0.8) && near(a.prices.mock.output_per_mtok, 1.6) && near(a.prices['claude-sonnet-5-5'].output_per_mtok, 8) && near(a.prices['claude-sonnet-5-5'].cache_read_per_mtok, 0.16), '1.0.1 database: prices converted USD -> EUR', a.prices)
+    ok(a.pricesMarker === 'EUR', '1.0.1 database: prices marker written', a)
     await stop()
     await start(DATA)
     const a2 = rawSums()
-    ok(a2.u === a.u && a2.d === a.d && a2.marker.rate === 0.92 && (await aiCfg()).ai_monthly_cost_cap === 4.6, 'second start does nothing', { a, a2 })
+    ok(JSON.stringify(a2.prices) === JSON.stringify(a.prices) && a2.u === a.u && a2.d === a.d, 'second start does not convert twice', { a, a2 })
     await stop()
   }
   {
-    const b = asV100({ ai_cost_currency: 'GBP', ai_cost_rate: null, ai_monthly_cost_cap: null })
+    // 1.0.0: costs in USD, no marker, currency + rate for display only
+    const b = legacy({ ai_cost_currency: 'EUR', ai_cost_rate: 0.92, ai_monthly_cost_cap: 5, ai_prices: usd })
     await start(DATA)
     const a = rawSums()
-    ok(near(a.u, b.u) && near(a.d, b.d) && a.marker?.code === 'GBP' && a.marker.rate === 1, '1.0.0 database with currency but no rate: rate 1, costs unchanged', { b, a })
+    ok(near(a.u, b.u * 0.92) && near(a.d, b.d * 0.92) && a.d > 0 && a.cap === 4.6 && a.marker.code === 'EUR', '1.0.0 database: costs and cap converted at startup', { b, a })
+    ok(near(a.prices.mock.output_per_mtok, 1.84) && a.pricesMarker === 'EUR', '1.0.0 database: prices converted', a.prices)
+    await stop()
+    await start(DATA)
+    const a2 = rawSums()
+    ok(a2.u === a.u && a2.d === a.d && a2.cap === 4.6 && JSON.stringify(a2.prices) === JSON.stringify(a.prices), 'second start does nothing', { a, a2 })
     await stop()
   }
+  {
+    // USD (1.0.0 default, no currency set): nothing to convert, only the markers
+    const b = legacy({ ai_cost_currency: null, ai_cost_rate: null, ai_monthly_cost_cap: null, ai_prices: usd })
+    await start(DATA)
+    const a = rawSums()
+    ok(near(a.u, b.u) && near(a.d, b.d) && JSON.stringify(a.prices) === JSON.stringify(usd) && a.pricesMarker === 'USD' && a.marker.code === 'USD', 'USD database: no conversion, markers written', { b, a })
+    await stop()
+  }
+  {
+    // Currency without a rate: factor 1
+    const b = legacy({ ai_cost_currency: 'GBP', ai_cost_rate: null, ai_prices: usd })
+    await start(DATA)
+    const a = rawSums()
+    ok(near(a.u, b.u) && JSON.stringify(a.prices) === JSON.stringify(usd) && a.pricesMarker === 'GBP', 'currency without a rate: unchanged', { b, a })
+    await stop()
+  }
+  {
+    // Fresh install: defaults only for USD, otherwise an empty table
+    legacy({ ai_cost_currency: 'GBP', ai_cost_rate: null, ai_prices: null })
+    await start(DATA)
+    ok(JSON.stringify(rawSums().prices) === '{}' && rawSums().pricesMarker === 'GBP', 'fresh install with another currency: empty price table', rawSums())
+    await stop()
+    legacy({ ai_cost_currency: null, ai_cost_rate: null, ai_prices: null })
+    await start(DATA)
+    ok(Object.keys(rawSums().prices).includes('claude-sonnet-5-5') && rawSums().pricesMarker === 'USD', 'fresh install in USD: default prices', rawSums())
+    await stop()
+  }
+  legacy({ ai_cost_currency: 'EUR', ai_cost_rate: null, ai_prices: usd })
   await start(DATA)
-  await A.put('/api/admin/ai', { ai_cost_currency: 'EUR', ai_cost_rate: 0.9 })
 
   section('Audit: filter, cursor, export, secrets, levels')
   r = await A.get('/api/admin/audit?limit=3')
@@ -899,6 +923,61 @@ async function main() {
   ok(sh.target_type === 'wishlist' && sh.target_id === String(listId) && sh.details.link_enabled === true, 'share target+details', sh)
   r = await A.post('/api/auth/logout')
   r = await A.post('/api/auth/login', { email: 'alice@example.com', password: PW })
+
+  section('Link import mode: built-in or AI')
+  {
+    const countLink = () => { const d = rdb(); const n = d.prepare("SELECT COUNT(*) n FROM ai_usage WHERE feature='link_import'").get().n; d.close(); return n }
+    r = await A.get('/api/admin/ai')
+    ok(r.data.ai_link_mode === 'ai', 'link mode default is ai (as before)', r.data.ai_link_mode)
+    r = await B.get('/api/ai/status')
+    ok(r.data.link_mode === 'ai' && r.data.global_enabled === true && r.data.user_enabled === true && r.data.provider === 'mock' && !('api_key' in r.data), 'status exposes default, flags and provider kind (no secrets)', r.data)
+    r = await A.put('/api/admin/ai', { ai_link_mode: 'bogus' })
+    ok(r.status === 400 && r.data.code === 'ai_link_mode_invalid', 'invalid default rejected', r)
+    r = await A.put('/api/admin/ai', { ai_link_mode: 'builtin' })
+    ok(r.status === 200 && r.data.ai_link_mode === 'builtin', 'default saved', r)
+    r = await B.get('/api/ai/status')
+    ok(r.data.link_mode === 'builtin', 'status follows the default', r.data)
+    r = await A.get('/api/admin/audit?action=admin.ai.settings')
+    ok(r.data.items.some((i) => JSON.stringify(i.details).includes('ai_link_mode')), 'default change audited', r.data.items[0])
+
+    // mode validation (before any network)
+    r = await B.post('/api/ai/extract-link', { url: 'https://example.com/', mode: 'turbo' })
+    ok(r.status === 400 && r.data.code === 'invalid_mode', 'invalid mode rejected', r)
+    r = await B.post('/api/ai/extract-link', { url: '', mode: 'ai' })
+    ok(r.status === 400 && r.data.code === 'url_required', 'url required', r)
+    // blocked address: both modes fail on the page (SSRF rules), neither on AI permissions
+    const before = countLink()
+    r = await B.post('/api/ai/extract-link', { url: 'http://127.0.0.1:9/x', mode: 'builtin' })
+    ok(r.status === 400 && !/^ai_/.test(r.data.code), 'builtin: page error only', r)
+    ok(countLink() === before, 'builtin records no AI usage')
+
+    // real page (needs network, as the capture tests above)
+    r = await B.post('/api/ai/extract-link', { url: 'https://example.com/', mode: 'builtin' })
+    if (r.status === 200) {
+      ok(r.data.via === 'builtin' && !r.data.fallback && countLink() === before, 'builtin: parser result, no AI call, no usage row', r.data)
+      r = await B.post('/api/ai/extract-link', { url: 'https://example.com/' })
+      ok(r.status === 200 && r.data.via === 'builtin' && countLink() === before, 'omitted mode follows the admin default (builtin)', r.data)
+      r = await B.post('/api/ai/extract-link', { url: 'https://example.com/', mode: 'ai' })
+      ok(r.status === 200 && r.data.via === 'ai' && countLink() === before + 1, 'ai: AI result and one usage row', r.data)
+      r = await A.put(`/api/admin/users/${bobId}/features`, { ai_enabled: false })
+      r = await B.post('/api/ai/extract-link', { url: 'https://example.com/', mode: 'ai' })
+      ok(r.status === 200 && r.data.via === 'builtin' && r.data.fallback === 'ai_disabled_for_user' && countLink() === before + 1, 'ai wanted but off for the user: built-in with fallback reason', r.data)
+      await A.put(`/api/admin/users/${bobId}/features`, { ai_enabled: null })
+      r = await A.put('/api/admin/ai', { ai_features: { link_import: false } })
+      r = await B.post('/api/ai/extract-link', { url: 'https://example.com/', mode: 'ai' })
+      ok(r.status === 200 && r.data.via === 'builtin' && r.data.fallback === 'ai_feature_disabled', 'link feature off: built-in with fallback reason', r.data)
+      await A.put('/api/admin/ai', { ai_features: { link_import: true } })
+      r = await A.put('/api/admin/ai', { ai_link_mode: 'ai' })
+      r = await B.post('/api/ai/extract-link', { url: 'https://example.com/' })
+      ok(r.status === 200 && r.data.via === 'ai', 'omitted mode follows the admin default (ai)', r.data)
+    } else console.log('  (no network: skipped the page-based link mode checks)', r.status, r.data?.code)
+    // capture API: use_ai omitted follows the default for links
+    r = await A.put('/api/admin/ai', { ai_link_mode: 'builtin' })
+    const u0 = countLink()
+    r = await api(KEY, 'POST', '/capture', { url: 'https://example.com/' })
+    ok(r.status === 201 && r.data.ai_used === false && countLink() === u0, 'capture: link without use_ai follows builtin default', r.data)
+    r = await A.put('/api/admin/ai', { ai_link_mode: 'ai' })
+  }
 
   section('Rate limiting: wrong keys')
   {

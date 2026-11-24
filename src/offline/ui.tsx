@@ -4,8 +4,8 @@ import { CircleAlert, CloudOff, CloudUpload, RefreshCw, WifiOff, type LucideIcon
 import { errorText, spaceLabel } from '../api'
 import { useAuth } from '../auth'
 import { fmtDate, fmtDateTime, fmtMoney, t, useT, type TKey } from '../i18n'
-import { RELATION_GROUPS, joinNames, statusInfo, type OccasionType } from '../lib'
-import { occasionTypeLabel } from '../store'
+import { joinNames, statusInfo, type OccasionType, type RelationshipType } from '../lib'
+import { occasionTypeLabel, relationshipTypeLabel } from '../store'
 import { Badge, Banner, Button, EmptyState, List, Modal, Row, Section, useConfirm } from '../ui'
 import { cachedState } from './engine'
 import { useOffline } from './hooks'
@@ -80,7 +80,7 @@ function valueText(op: Op, unit: string, value: Data, s: Data | null): string {
   if (unit === 'occasion_id') return s?.occasions.find((o: Data) => o.id === v)?.name ?? t('offline.conflict.unknown')
   if (unit === 'item_id') return s?.items.find((i: Data) => i.id === v)?.title ?? t('offline.conflict.unknown')
   if (unit === 'type') return occasionTypeLabel((s?.occasion_types as OccasionType[] | undefined)?.find((x) => x.key === v), v)
-  if (unit === 'relationship_group') return RELATION_GROUPS.find((g) => g.id === v)?.label ?? v
+  if (unit === 'relationship') return relationshipTypeLabel((s?.relationship_types as RelationshipType[] | undefined)?.find((x) => x.key === v), v)
   if (unit === 'status') {
     if (op.kind === 'gift') return statusInfo(v).label
     return t(v === 'open' ? 'forms.open' : v === 'received' ? 'forms.wish.received' : v === 'done' ? 'forms.item.done' : 'forms.item.discarded')

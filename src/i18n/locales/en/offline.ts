@@ -78,7 +78,6 @@ const en: Record<keyof typeof de, string> = {
   'field.yearly_budget': 'Yearly budget',
   'field.archived': 'Archived',
   'field.relationship': 'Relationship',
-  'field.relationship_group': 'Group',
   'field.email': 'Email',
   'field.type': 'Type',
   'field.date': 'Date',

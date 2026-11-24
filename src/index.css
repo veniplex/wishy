@@ -183,7 +183,7 @@
 @layer components {
   /* ---- Type scale: headings in Bricolage Grotesque, body in Inter ---- */
   .h1 {
-    @apply font-display font-bold text-[clamp(2rem,6vw,3.25rem)] leading-[1.05] tracking-[-0.02em];
+    @apply font-display font-bold text-[clamp(1.75rem,6vw,3.25rem)] leading-[1.08] tracking-[-0.02em];
   }
   .h2 {
     @apply font-display font-semibold text-xl tracking-[-0.01em];
@@ -206,10 +206,10 @@
 
   /* ---- Surfaces ---- */
   .card {
-    @apply bg-card rounded-[26px] shadow-sm;
+    @apply bg-card rounded-[22px] md:rounded-[26px] shadow-sm;
   }
   .list {
-    @apply bg-card rounded-[26px] shadow-sm divide-y divide-line overflow-hidden;
+    @apply bg-card rounded-[22px] md:rounded-[26px] shadow-sm divide-y divide-line overflow-hidden;
   }
   .list-bare {
     @apply divide-y divide-line;
@@ -220,7 +220,7 @@
 
   /* ---- Buttons (Pillen) ---- */
   .btn {
-    @apply inline-flex items-center justify-center gap-1.5 rounded-full px-5 h-11 text-sm font-semibold bg-hover text-ink
+    @apply inline-flex items-center justify-center gap-1.5 rounded-full px-4 md:px-5 h-10 md:h-11 text-sm font-semibold bg-hover text-ink
       hover:brightness-95 transition cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed whitespace-nowrap select-none;
   }
   .btn-sm {
@@ -245,7 +245,7 @@
     @apply h-auto px-0 bg-transparent text-muted text-xs hover:text-accent hover:bg-transparent hover:brightness-100;
   }
   .icon-btn {
-    @apply inline-flex items-center justify-center size-11 rounded-full text-muted hover:bg-hover hover:text-ink cursor-pointer transition-colors shrink-0 disabled:opacity-60;
+    @apply inline-flex items-center justify-center size-10 md:size-11 rounded-full text-muted hover:bg-hover hover:text-ink cursor-pointer transition-colors shrink-0 disabled:opacity-60;
   }
   .icon-btn-sm {
     @apply size-9;
@@ -262,7 +262,7 @@
 
   /* ---- Formulare ---- */
   .input {
-    @apply w-full rounded-2xl border border-ctl bg-card px-4 h-11 text-sm text-ink outline-none transition-shadow
+    @apply w-full rounded-2xl border border-ctl bg-card px-4 h-10 md:h-11 text-sm text-ink outline-none transition-shadow
       focus:border-accent focus:ring-[3px] focus:ring-accent/25 disabled:opacity-60;
   }
   textarea.input {
@@ -278,7 +278,7 @@
     color: var(--muted);
   }
   .select-trigger-multi {
-    @apply h-auto min-h-11 py-1.5;
+    @apply h-auto min-h-10 md:min-h-11 py-1.5;
   }
   .sel-chip {
     @apply inline-flex items-center gap-1.5 rounded-full bg-hover text-ink px-2.5 h-7 text-xs font-semibold max-w-full;
@@ -332,11 +332,11 @@
 
   /* ---- Zeilen ---- */
   .row {
-    @apply relative flex flex-wrap items-center gap-x-4 gap-y-1 px-5 py-4 min-h-[4.5rem] transition-colors;
+    @apply relative flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-3 md:px-5 md:py-4 min-h-16 md:min-h-[4.5rem] transition-colors;
     container-type: inline-size; /* Zeilen reagieren auf ihre eigene Breite (siehe Row in ui.tsx) */
   }
   .row-dense {
-    @apply py-2.5 min-h-14;
+    @apply py-2 md:py-2.5 min-h-14;
   }
   .row-interactive {
     @apply hover:bg-hover;
@@ -360,23 +360,23 @@
 
   /* ---- Navigation ---- */
   .nav-link {
-    @apply flex items-center gap-2.5 rounded-full px-4 min-h-11 text-sm font-semibold whitespace-nowrap text-muted transition-colors cursor-pointer
+    @apply flex items-center gap-2.5 rounded-full px-3.5 md:px-4 min-h-10 md:min-h-11 text-sm font-semibold whitespace-nowrap text-muted transition-colors cursor-pointer
       hover:bg-hover hover:text-ink;
   }
   .nav-link-on {
     @apply bg-accent text-accent-ink hover:bg-accent hover:text-accent-ink;
   }
   .tabs {
-    @apply flex flex-wrap gap-1 p-1.5 bg-hover rounded-full;
+    @apply flex flex-wrap gap-1 p-1 md:p-1.5 bg-hover rounded-full;
   }
   .tab {
-    @apply flex-1 inline-flex items-center justify-center gap-2 min-h-12 px-5 rounded-full text-sm font-semibold whitespace-nowrap text-muted hover:text-ink transition-colors cursor-pointer;
+    @apply flex-1 inline-flex items-center justify-center gap-2 min-h-10 md:min-h-12 px-4 md:px-5 rounded-full text-sm font-semibold whitespace-nowrap text-muted hover:text-ink transition-colors cursor-pointer;
   }
   .tab-on {
     @apply bg-card text-ink shadow-sm;
   }
   .pill {
-    @apply inline-flex items-center gap-2 min-h-11 px-4 rounded-full bg-card text-ink text-sm font-semibold shadow-sm cursor-pointer hover:brightness-95 transition;
+    @apply inline-flex items-center gap-2 min-h-10 md:min-h-11 px-4 rounded-full bg-card text-ink text-sm font-semibold shadow-sm cursor-pointer hover:brightness-95 transition;
   }
   /* Shared popover surface: menus, select lists, calendar, hints */
   .pop,

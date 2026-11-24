@@ -5,6 +5,7 @@ import { pageForAi, storeImage } from '../preview.js'
 import { linkedWishlists } from '../wishlists.js'
 import { getState } from '../planning.js'
 import { typeDisplayName } from '../occasion-types.js'
+import { relationshipDisplayName } from '../relationship-core.js'
 import { userLocale } from '../locale.js'
 import { bad, notFound, forbidden, numId } from '../util.js'
 import { generateJson } from './client.js'
@@ -273,7 +274,10 @@ export function suggestContext(ctx, userId, body) {
   const L = []
   L.push(`Today's date: ${state.today}`)
   L.push(`Person: ${person.name}`)
-  if (person.relationship) L.push(`Relationship: ${person.relationship}`)
+  if (person.relationship) {
+    const rt = state.relationship_types.find((x) => x.key === person.relationship)
+    L.push(`Relationship: ${clip(rt ? relationshipDisplayName(rt, userLocale(userId)) : person.relationship, 60)}`)
+  }
   if (person.birthday) L.push(`Birthday: ${person.birthday}`)
   if (person.notes) L.push(`Notes:\n${clip(person.notes, 1500)}`)
   if (person.yearly_budget != null) L.push(`Yearly budget for this person: ${eur(person.yearly_budget)}`)

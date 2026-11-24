@@ -6,16 +6,16 @@ export interface Person {
   /** Computed by the server: is this person linked to the signed-in user? */
   is_me: number
   linked_user_id: number | null
-  /** Relationship as free text (partner, mother, …) */
+  /** Key of a relationship type of the space (see RelationshipType; null = none) */
   relationship?: string | null
   /** Optional: if the person joins a space with this email, they are linked automatically */
   email?: string | null
-  /** partner | family | friends | work | other */
-  relationship_group?: string | null
   /** Wishlists of the linked user that are visible to you */
   linked_wishlists?: { id: number; title: string; wish_count: number; open_count: number }[]
   birthday: string | null
   emoji: string | null
+  /** Cache-busted URL of the person's photo (takes precedence over the emoji), null without a photo */
+  photo_url?: string | null
   color: string | null
   notes: string | null
   yearly_budget: number | null
@@ -127,6 +127,21 @@ export interface Gift {
   paid_amount?: number | null
   payment_summary?: { paid: boolean; payer_id: number | null; open_amount: number; open_count: number }
 }
+/** Relationship type of a space (managed in Settings > Space; seeded by the server, see server/relationship-core.js) */
+export interface RelationshipType {
+  id: number
+  /** Stored in persons.relationship */
+  key: string
+  /** Set for the built-in (fixed) types: the label comes from the i18n, they can only be hidden */
+  builtin_key: string | null
+  /** Name of a custom type (null for built-ins) */
+  name: string | null
+  sort: number
+  /** Not offered for new/edited persons (persons that have it still display it) */
+  hidden: number
+  /** Number of persons of the space using this type */
+  usage: number
+}
 export interface State {
   today: string
   space_id: number
@@ -136,6 +151,7 @@ export interface State {
   persons: Person[]
   occasions: Occasion[]
   occasion_types: OccasionType[]
+  relationship_types: RelationshipType[]
   items: Item[]
   gifts: Gift[]
   settings: { currency: string; yearly_budget: number | null }
@@ -226,28 +242,6 @@ export const joinNames = (names: string[]) =>
 
 const PALETTE = ['#f59e0b', '#10b981', '#3b82f6', '#ec4899', '#8b5cf6', '#ef4444', '#14b8a6', '#f97316', '#6366f1', '#84cc16']
 export const personColor = (p: Person) => p.color || PALETTE[Math.abs(p.id) % PALETTE.length]
-
-/** Relationship groups (order = display order) */
-export const RELATION_GROUPS: { id: string; label: string }[] = ['partner', 'family', 'friends', 'work', 'other'].map((id) => lazyLabel({ id }, `give.group.${id}` as TKey))
-/** Group of a person (`relationship_group`; anything else counts as 'other') */
-export const groupOf = (p: Pick<Person, 'relationship_group'>) => {
-  const g = p.relationship_group
-  return RELATION_GROUPS.some((x) => x.id === g) ? (g as string) : 'other'
-}
-
-/** Relationship suggestions with matching group (free text remains possible; the chosen text is stored) */
-const REL_KEYS: [string, string[]][] = [
-  ['partner', ['partnerF', 'partnerM', 'wife', 'husband']],
-  ['family', ['mother', 'father', 'sister', 'brother', 'daughter', 'son', 'grandma', 'grandpa', 'aunt', 'uncle', 'cousinF', 'cousinM', 'niece', 'nephew', 'godchild']],
-  ['friends', ['friendF', 'friendM', 'bestFriendF', 'bestFriendM']],
-  ['work', ['colleagueF', 'colleagueM']],
-  ['other', ['neighbourF', 'neighbourM']],
-]
-export const relationships = (): { label: string; group: string }[] => {
-  const seen = new Set<string>()
-  return REL_KEYS.flatMap(([group, keys]) => keys.map((k) => ({ label: t(`give.rel.${k}` as TKey), group }))).filter((r) => !seen.has(r.label) && !!seen.add(r.label))
-}
-export const RELATIONSHIPS: { label: string; group: string }[] = lazyList(relationships)
 
 /** Date a gift counts for: its occasion, else its own date, else when it was created */
 type Dated = { occasions: { id: number; date: string }[] }

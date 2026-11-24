@@ -1,11 +1,11 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { CalendarHeart, Gift as GiftIcon, Lightbulb, Plus, UserRound, Users } from 'lucide-react'
-import { useStore } from './store'
+import { useRelationshipTypes, useStore } from './store'
 import { useAuth } from './auth'
 import { fmtIntl, t } from './i18n'
 import { NewShared } from './wishlists'
-import { GIFT_STATUS, RELATION_GROUPS, costFor, countdown, daysUntil, fmtDate, fmtDateShort, giftDateOf, giftYear, groupOf, isCommitted, isLeftOutBirthday, isLive, joinNames, nextBirthday, parseDate, statusInfo, sum, type Occasion, type Person } from './lib'
+import { GIFT_STATUS, costFor, countdown, daysUntil, fmtDate, fmtDateShort, giftDateOf, giftYear, isCommitted, isLeftOutBirthday, isLive, joinNames, nextBirthday, parseDate, statusInfo, sum, type Occasion, type Person } from './lib'
 import { Avatar, Badge, Button, EmptyState, List, Money, Page, PageHeader, PillTabs, Progress, Row, Section, SearchField, Segmented, Select, Thumb, ToggleLink, Toolbar } from './ui'
 import { PersonSelect } from './pickers'
 import { GiftRow, ItemRow, OccasionRow, rich, useOccasionStats } from './components'
@@ -57,6 +57,7 @@ function OccasionCard({ o }: { o: Occasion }) {
 }
 
 export function Dashboard() {
+  const relTypes = useRelationshipTypes()
   const { s, me, open, person, call } = useStore()
   const fresh = s.persons.every((p) => p.is_me) && !s.occasions.length && !s.gifts.length && !s.items.length
   if (fresh) {
@@ -136,7 +137,7 @@ export function Dashboard() {
             return (
               <Link key={p.id} to={`/gifting/${p.id}`} className="shrink-0 w-24 flex flex-col items-center gap-2 text-center">
                 <Avatar p={p} size={64} ring={days != null && days <= 30 ? 'var(--accent)' : days != null && days <= 60 ? 'var(--warn)' : 'var(--line)'} />
-                <span className="leading-tight"><span className="block font-semibold truncate max-w-24">{p.name}</span><span className="block text-xs text-muted">{days != null ? countdown(days) : (p.relationship ?? '')}</span></span>
+                <span className="leading-tight"><span className="block font-semibold truncate max-w-24">{p.name}</span><span className="block text-xs text-muted">{days != null ? countdown(days) : relTypes.labelOf(p.relationship)}</span></span>
               </Link>
             )
           })}
@@ -207,12 +208,16 @@ export function Occasions() {
 
 // ---------------- Gifting: Who for ----------------
 export function Persons() {
+  const relTypes = useRelationshipTypes()
   const { s, open, me, itemState, occasionTitle } = useStore()
   const { space } = useAuth()
   const [showArchived, setShowArchived] = useState(false)
   const year = s.today.slice(0, 4)
   const list = s.persons.filter((p) => !p.is_me && (showArchived || !p.archived))
-  const groups = RELATION_GROUPS.filter((g) => list.some((p) => groupOf(p) === g.id))
+  // Grouped by relationship type in the space's order of the types; persons without a (known) type come last
+  const typed = relTypes.all.map((x) => ({ id: x.key, label: x.label, persons: list.filter((p) => p.relationship === x.key) }))
+  const noType = list.filter((p) => !p.relationship || !relTypes.byKey.has(p.relationship))
+  const groups = [...typed, { id: '', label: t('give.reltype.none'), persons: noType }].filter((g) => g.persons.length)
   const hasArchived = s.persons.some((p) => p.archived)
   const card = (p: Person) => {
     const openItems = s.items.filter((i) => i.person_id === p.id && itemState(i) === 'open').length
@@ -228,7 +233,7 @@ export function Persons() {
           <Avatar p={p} size={64} ring={days != null && days <= 30 ? 'var(--accent)' : undefined} />
           <div className="min-w-0">
             <Link to={`/gifting/${p.id}`} className="row-stretch font-display font-semibold text-xl leading-tight truncate block">{p.name}</Link>
-            <div className="text-sm text-muted truncate">{p.relationship || (p.archived ? t('give.persons.archived') : ' ')}</div>
+            <div className="text-sm text-muted truncate">{p.archived ? t('give.persons.archived') : ' '}</div>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
@@ -257,7 +262,7 @@ export function Persons() {
       />
       {groups.map((g) => (
         <Section key={g.id} title={g.label}>
-          <div className="grid gap-5 grid-cols-[repeat(auto-fill,minmax(min(100%,260px),1fr))]">{list.filter((p) => groupOf(p) === g.id).map(card)}</div>
+          <div className="grid gap-5 grid-cols-[repeat(auto-fill,minmax(min(100%,260px),1fr))]">{g.persons.map(card)}</div>
         </Section>
       ))}
       {!list.length && <EmptyState icon={Users} action={<Button size="sm" icon={Plus} onClick={() => open({ type: 'person' })}>{t('give.persons.create')}</Button>}>{t('give.persons.empty')}</EmptyState>}

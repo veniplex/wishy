@@ -37,7 +37,7 @@ in one container with one SQLite file. The interface is available in English and
 - 📱 **Works offline:** install it as an app (PWA, needs HTTPS). Your data is available without a connection; changes are
   kept on the device and synchronised as soon as the server is reachable again.
 - 🔐 **Accounts:** email and password, 2FA (TOTP), passkeys, Google sign-in; open, invite-only or closed registration.
-- 🛠️ **Administration:** users, audit log, REST API with API keys, optional AI features (Anthropic, OpenAI, Google).
+- 🛠️ **Administration:** users, audit log, REST API with API keys, optional AI features (Anthropic, OpenAI, Google), always marked in the app; link import works with the built-in page parser or with AI (admin default, choosable per import).
 - 🔄 **Operations:** encrypted backups, signed updates of the app or the whole image, automatic rollback.
 
 ## Screenshots

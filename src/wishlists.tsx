@@ -9,6 +9,7 @@ import { useStore } from './store'
 import { fmtDate, type State } from './lib'
 import { AiImportButton } from './ai'
 import { ListForm, WishForm } from './forms'
+import { WishDetail } from './detail-dialog'
 import { listTabs } from './nav'
 import { LanguageMenu } from './i18n/switch'
 import { t } from './i18n'
@@ -338,16 +339,16 @@ export function MyLists() {
       <PageHeader title={t('nav.main.lists')} sub={t('wishlists.sub')} tabs={listTabs(sharedUnseen)} />
       {error && <FormError>{error}</FormError>}
       {!data && !error ? <PageSkeleton /> : (
-        <section className="grid gap-5 grid-cols-[repeat(auto-fill,minmax(min(100%,260px),1fr))]">
+        <section className="grid gap-4 md:gap-5 grid-cols-[repeat(auto-fill,minmax(min(100%,260px),1fr))]">
           {active.map(card)}
-          <button type="button" onClick={() => setCreating(true)} className="min-h-60 rounded-[26px] border-2 border-dashed border-line p-5 flex flex-col items-center justify-center gap-3 text-muted text-center cursor-pointer hover:border-accent transition-colors">
+          <button type="button" onClick={() => setCreating(true)} className="min-h-32 md:min-h-60 rounded-[22px] md:rounded-[26px] border-2 border-dashed border-line p-4 md:p-5 flex flex-col items-center justify-center gap-3 text-muted text-center cursor-pointer hover:border-accent transition-colors">
             <span className="size-14 rounded-full bg-card text-accent shadow-sm grid place-items-center"><Plus size={26} strokeWidth={2.4} /></span>
             <span className="font-display font-semibold text-xl text-ink">{t('wishlists.new')}</span>
           </button>
         </section>
       )}
       {archived.length > 0 && <ToggleLink on={showArchived} onToggle={() => setShowArchived(!showArchived)} labelOn={t('wishlists.hideArchived')} labelOff={t('wishlists.showArchived', { count: archived.length })} />}
-      {showArchived && <section className="grid gap-5 grid-cols-[repeat(auto-fill,minmax(min(100%,260px),1fr))]">{archived.map(card)}</section>}
+      {showArchived && <section className="grid gap-4 md:gap-5 grid-cols-[repeat(auto-fill,minmax(min(100%,260px),1fr))]">{archived.map(card)}</section>}
       {creating && <ListForm onClose={() => setCreating(false)} onSaved={(l) => l && nav(`/wishlists/${l.id}`)} />}
     </Page>
   )
@@ -382,7 +383,7 @@ export function SharedWithMe() {
         <EmptyState icon={Heart}>{t('wishlists.sharedEmpty')}</EmptyState>
       ) : owners.map((o) => (
         <Section key={o.id} title={o.name}>
-          <div className="grid gap-5 grid-cols-[repeat(auto-fill,minmax(min(100%,260px),1fr))]">{data!.shared.filter((l) => l.owner.id === o.id).map((l) => sharedCard(l))}</div>
+          <div className="grid gap-4 md:gap-5 grid-cols-[repeat(auto-fill,minmax(min(100%,260px),1fr))]">{data!.shared.filter((l) => l.owner.id === o.id).map((l) => sharedCard(l))}</div>
         </Section>
       ))}
     </Page>
@@ -427,6 +428,8 @@ export function WishlistDetail() {
   const [view, setView] = useState<ListView | null>(null)
   const [error, setError] = useState('')
   const [wishForm, setWishForm] = useState<{ initial?: Partial<Wish> } | null>(null)
+  /** Id of the wish whose read-only detail dialog is open */
+  const [wishDetail, setWishDetail] = useState<number | null>(null)
   const [editing, setEditing] = useState(false)
   const [sharing, setSharing] = useState(false)
   const planned = usePlanned((view?.wishlist as SharedSummary | undefined)?.owner?.name ?? t('wishlists.thePerson'))
@@ -538,7 +541,7 @@ export function WishlistDetail() {
               key={w.id}
               lead={<Thumb src={w.image_url} icon={Heart} />}
               title={w.title}
-              onClick={() => setWishForm({ initial: w })}
+              onClick={() => setWishDetail(w.id)}
               dim={w.status === 'received'}
               titleSuffix={<><Stars n={w.priority} /><WishLink w={w} /></>}
               meta={w.notes}
@@ -557,6 +560,10 @@ export function WishlistDetail() {
           ))}
         </List>
       </Section>
+      {wishDetail != null && wishes.find((w) => w.id === wishDetail) && (() => {
+        const w = wishes.find((x) => x.id === wishDetail)!
+        return <WishDetail w={w} canEdit onClose={() => setWishDetail(null)} onEdit={() => { setWishDetail(null); setWishForm({ initial: w }) }} onToggle={() => void setStatus(w, w.status === 'received' ? 'open' : 'received')} onDelete={() => void remove(w)} />
+      })()}
       {wishForm && <WishForm listId={mine.id} initial={wishForm.initial} onClose={() => setWishForm(null)} onSaved={() => void load()} />}
       {editing && <ListForm initial={mine} onClose={() => setEditing(false)} onSaved={(n) => (n ? void load() : nav('/wishlists', { replace: true }))} />}
       {sharing && <ShareDialog list={mine} onClose={() => setSharing(false)} onChange={(n) => setView((v) => v && { ...v, wishlist: n })} />}

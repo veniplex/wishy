@@ -7,12 +7,13 @@ import { t } from './i18n'
 import { api, errMsg, type MyWishlist } from './api'
 import { fmtDate, type Occasion, type Person } from './lib'
 import { realId } from './offline/engine'
-import { useOccasionTypes, useStore } from './store'
+import { useOccasionTypes, useRelationshipTypes, useStore } from './store'
 import { OccasionTypeIcon } from './components'
 import { OCCASION_ICON_MAP } from './occasion-icons'
 import { Avatar, Chip, DatePicker, Field, MultiSelect, Select, useToast, type CreateConfig, type SelectChange, type SelectOption } from './ui'
 
-const personOption = (p: Person): SelectOption => ({ value: p.id, label: p.is_me ? t('controls.picker.meSuffix', { name: p.name }) : p.name, icon: <Avatar p={p} size={20} />, keywords: p.relationship ?? '' })
+/** Option of a person; the relationship's display name is searchable (keywords) */
+const personOption = (p: Person, relLabel: (key: string | null | undefined) => string): SelectOption => ({ value: p.id, label: p.is_me ? t('controls.picker.meSuffix', { name: p.name }) : p.name, icon: <Avatar p={p} size={20} />, keywords: relLabel(p.relationship) })
 
 /** Creating a person from within the list */
 export function usePersonCreate(): CreateConfig {
@@ -31,12 +32,13 @@ export function PersonPicker({ persons, value, onChange, create = true, placehol
   id?: string
 }) {
   const cfg = usePersonCreate()
+  const { labelOf } = useRelationshipTypes()
   return (
     <MultiSelect
       id={id}
       aria-label={label ?? t('controls.picker.persons')}
       placeholder={persons.length || create ? placeholder ?? t('controls.picker.choosePersons') : t('controls.picker.noPersons')}
-      options={persons.map(personOption)}
+      options={persons.map((p) => personOption(p, labelOf))}
       value={value.map(realId)}
       onChange={(v) => onChange(v.map(Number))}
       create={create ? cfg : undefined}
@@ -60,7 +62,8 @@ export function PersonSelect({ persons, value, onChange, placeholder, none, crea
   id?: string
 }) {
   const cfg = usePersonCreate()
-  const options: SelectOption[] = [...(none ? [{ value: 0, label: none }] : []), ...persons.map(personOption)]
+  const { labelOf } = useRelationshipTypes()
+  const options: SelectOption[] = [...(none ? [{ value: 0, label: none }] : []), ...persons.map((p) => personOption(p, labelOf))]
   return (
     <Select
       id={id} aria-label={label ?? t('controls.picker.person')} placeholder={placeholder ?? t('controls.picker.pleaseChoose')} options={options} value={realId(value) || (none ? 0 : '')} invalid={invalid} inline={inline} className={className}

@@ -131,7 +131,7 @@ export function openapiDocument(baseUrl, rateLimit = 60) {
             person: { type: ['string', 'integer'], description: 'Name or id; unknown = inbox' },
             wishlist: { type: ['string', 'integer'], description: 'For wishes; default: first list' },
             space: { type: ['string', 'integer'] },
-            use_ai: { type: 'boolean', description: 'Default: on if AI is allowed for the user' },
+            use_ai: { type: 'boolean', description: 'true = read with AI, false = built-in only. Omitted: texts use AI if allowed for the user; links follow the admin default for link imports (built-in parser or AI).' },
           },
         },
         CaptureResponse: {
@@ -158,7 +158,7 @@ export function openapiDocument(baseUrl, rateLimit = 60) {
             warnings: arr({ type: 'string' }),
           },
         },
-        Person: { type: 'object', properties: { id: { type: 'integer' }, name: { type: 'string' }, birthday: { type: ['string', 'null'] }, relationship: { type: ['string', 'null'] }, relationship_group: { type: ['string', 'null'] }, archived: { type: 'boolean' }, is_me: { type: 'boolean' } } },
+        Person: { type: 'object', properties: { id: { type: 'integer' }, name: { type: 'string' }, birthday: { type: ['string', 'null'] }, relationship: { type: ['string', 'null'], description: 'Display name of the relationship type in your language (null = none)' }, relationship_type: { type: ['string', 'null'], description: "Key of the space's relationship type (managed by the space, e.g. partner, friend or custom_...)" }, archived: { type: 'boolean' }, is_me: { type: 'boolean' } } },
         Idea: {
           type: 'object',
           properties: {

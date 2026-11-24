@@ -475,10 +475,10 @@ async function main() {
   const annaId = ps.persons.find((p) => p.name === 'Anna').id
   const tomId = ps.persons.find((p) => p.name === 'Tom').id
   const iAm = ps.persons.find((p) => p.is_me).id
-  r = await A.put(`/api/persons/${annaId}`, { relationship: 'Partner', relationship_group: 'partner' })
-  t('person relationship fields saved', r.status === 200 && r.data.persons.find((p) => p.id === annaId).relationship === 'Partner' && r.data.persons.find((p) => p.id === annaId).relationship_group === 'partner', r.status)
+  r = await A.put(`/api/persons/${annaId}`, { relationship: 'partner', relationship_group: 'partner' })
+  t('person relationship (type key) saved, the removed relationship_group is ignored', r.status === 200 && r.data.persons.find((p) => p.id === annaId).relationship === 'partner' && !('relationship_group' in r.data.persons.find((p) => p.id === annaId)), r.status)
   r = await A.put(`/api/persons/${annaId}`, { relationship_group: 'unsinn' })
-  t('invalid relationship_group -> 400', r.status === 400)
+  t('an old client sending relationship_group is not rejected', r.status === 200, r.status)
   const today = ps.today
   r = await A.post('/api/gifts', { title: 'Tickets', price: 90, status: 'ordered', payment_status: 'paid', payer_id: iAm, recipient_ids: [annaId], givers: [{ person_id: iAm }, { person_id: annaId }, { person_id: tomId }] })
   const g2 = r.data.gifts.find((g) => g.title === 'Tickets')
@@ -536,7 +536,7 @@ async function main() {
   const tee = cd.gifts.find((g) => g.title === 'Cast-iron teapot')
   const konz = cd.gifts.find((g) => g.title === 'Concert tickets')
   const kaff = cd.gifts.find((g) => g.title === 'Coffee grinder')
-  t('demo: relationship fields', cd.persons.find((p) => p.name === 'Anna').relationship === 'Partner' && cd.persons.find((p) => p.name === 'Mum').relationship_group === 'family')
+  t('demo: relationship fields', cd.persons.find((p) => p.name === 'Anna').relationship === 'partner' && cd.persons.find((p) => p.name === 'Mum').relationship === 'parent' && cd.relationship_types.some((x) => x.key === 'partner'))
   t('demo: shipped with tracking', tee.status === 'shipped' && tee.tracking_number && tee.carrier === 'DHL' && tee.tracking_url && tee.expected_at, tee)
   t('demo: paid by me, two open shares', konz.payment_summary.paid && konz.payment_summary.open_count === 2 && konz.payment_summary.open_amount === 60, konz.payment_summary)
   t('demo: fully settled', kaff.payment_summary.paid && kaff.payment_summary.open_count === 0 && kaff.givers.find((x) => x.settled_at), kaff)
@@ -597,7 +597,7 @@ async function main() {
 
   // Merge persons
   const mkp = async (b) => (await A.post('/api/persons', b)).data.persons.find((p) => p.name === b.name)
-  const bobbyP = await mkp({ name: 'Bobby', birthday: '1990-06-01', notes: 'Likes blue', relationship: 'Brother', email: 'bobby@example.com' })
+  const bobbyP = await mkp({ name: 'Bobby', birthday: '1990-06-01', notes: 'Likes blue', relationship: 'sibling', email: 'bobby@example.com' })
   t('person email exposed', bobbyP.email === 'bobby@example.com')
   r = await A.post('/api/persons', { name: 'Kaputt', email: 'kein-mail' })
   t('invalid person email -> 400', r.status === 400)
@@ -616,7 +616,7 @@ async function main() {
   const ms = r.data
   const bobby2 = ms.persons.find((p) => p.id === bobbyP.id)
   t('merge: kept manual person, linked, auto person gone', r.status === 200 && bobby2.linked_user_id === bobUid && bobby2.name === 'Bobby' && !ms.persons.some((p) => p.id === bobP) && ms.persons.filter((p) => p.linked_user_id === bobUid).length === 1, ms.persons)
-  t('merge: kept notes/birthday, filled empty emoji', bobby2.notes === 'Likes blue' && bobby2.birthday === '1990-06-01' && bobby2.emoji === '🎸' && bobby2.relationship === 'Brother')
+  t('merge: kept notes/birthday, filled empty emoji', bobby2.notes === 'Likes blue' && bobby2.birthday === '1990-06-01' && bobby2.emoji === '🎸' && bobby2.relationship === 'sibling')
   const my = (n) => ms.gifts.find((g) => g.title === n)
   t('merge: payer + giver amount moved', my('Grandma split').payer_id === bobbyP.id && my('Grandma split').givers.some((g) => g.person_id === bobbyP.id && g.amount === 10) && !my('Grandma split').givers.some((g) => g.person_id === bobP), my('Grandma split'))
   t('merge: shares of both combined, no duplicates', my('Beide Schenkende').givers.length === 1 && my('Beide Schenkende').givers[0].amount === 25, my('Beide Schenkende').givers)
