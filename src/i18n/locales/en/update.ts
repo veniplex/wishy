@@ -179,7 +179,7 @@ const en: Record<keyof typeof de, string> = {
   'running.blip': 'Connection briefly lost – Wishy is being swapped …',
   'failed.recoveryTitle': 'Recovery view',
   'failed.recovery': 'If Wishy does not run properly, open /__launcher/recovery on your installation\'s address. The access token is in the container log:',
-  'failed.recoveryCmd': 'docker compose logs wishy | grep Wiederherstellungs-Token',
+  'failed.recoveryCmd': 'docker compose logs wishy | grep -i "recovery token"',
   'failed.rollbackFailed': 'The automatic rollback failed. The old version is deliberately not started on an already migrated database.',
   'code.docker_unavailable': 'No access to the Docker API – only an app update is possible.',
   'code.digest_mismatch': 'The pulled image does not match the signed digest and was discarded.',

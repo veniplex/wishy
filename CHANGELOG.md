@@ -8,6 +8,8 @@ The section of a version is used automatically as the release notes when releasi
 
 - License: GNU Affero General Public License v3 (`AGPL-3.0-only`); the license text is part of the release archive and the image.
 - Extended security policy for reporting vulnerabilities.
+- `docker-compose.yml` keeps the data in a named volume by default and lists all environment variables.
+- Fixed: after a failed update, the shown command to find the recovery token now matches the container log.
 
 ## [1.0.0] – 2026-11-24
 
