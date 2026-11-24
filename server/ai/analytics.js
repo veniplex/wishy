@@ -4,7 +4,7 @@ import { requireAdmin, requireAuth } from '../session.js'
 import { csvRow } from '../audit.js'
 import { bad } from '../util.js'
 import { getAiConfig } from './settings.js'
-import { displayCurrency } from './prices.js'
+import { trackingCurrency } from './prices.js'
 import { monthKey, userMonth } from './usage.js'
 
 const DAY = 86_400_000
@@ -37,24 +37,23 @@ const SUMS = `COALESCE(SUM(requests),0) AS requests, COALESCE(SUM(errors),0) AS 
   COALESCE(SUM(cache_write_tokens),0) AS cache_write_tokens, COALESCE(SUM(cost),0) AS cost, COALESCE(SUM(unpriced),0) AS unpriced_requests,
   COALESCE(SUM(latency_ms_sum),0) AS latency_sum`
 
-const finish = (r, cur) => {
+const finish = (r) => {
   const { latency_sum, ...rest } = r
   return {
     ...rest,
     ok_requests: r.requests - r.errors,
     error_rate: r.requests ? r.errors / r.requests : 0,
     avg_latency_ms: r.requests ? Math.round(latency_sum / r.requests) : null,
-    cost: Math.round(r.cost * 1e6) / 1e6, // USD
-    cost_display: Math.round(r.cost * cur.rate * 1e6) / 1e6,
+    cost: Math.round(r.cost * 1e6) / 1e6, // tracking currency
   }
 }
 
 export function summary(from, to, userId) {
-  const cur = displayCurrency()
+  const cur = trackingCurrency()
   const r = db
     .prepare(`SELECT ${SUMS} FROM ${UNIFIED} WHERE day>=? AND day<=? ${userId != null ? 'AND user_id=?' : ''}`)
     .get(from, to, ...(userId != null ? [userId] : []))
-  return { from, to, currency: cur, ...finish(r, cur) }
+  return { from, to, currency: { code: cur.code }, ...finish(r) }
 }
 
 const BUCKET_SQL = {
@@ -81,7 +80,7 @@ function bucketStarts(from, to, bucket) {
 export function timeseries(from, to, bucket, group) {
   if (!BUCKET_SQL[bucket]) throw Object.assign(bad('Invalid bucket type (day, week, month)'), { code: 'invalid_value' })
   if (!['user', 'feature', 'model', 'none'].includes(group)) throw Object.assign(bad('Invalid grouping (user, feature, model, none)'), { code: 'invalid_value' })
-  const cur = displayCurrency()
+  const cur = trackingCurrency()
   const keyCol = { user: 'user_id', feature: 'feature', model: 'model', none: "''" }[group]
   const rows = db
     .prepare(
@@ -96,14 +95,14 @@ export function timeseries(from, to, bucket, group) {
     bucket: r.bucket,
     key: group === 'none' ? null : group === 'user' ? (r.key === 0 ? null : r.key) : r.key,
     label: group === 'none' ? null : group === 'user' ? (names.get(r.key) ?? (r.key === 0 ? null : `#${r.key}`)) : r.key || null,
-    ...finish(r, cur),
+    ...finish(r),
   }))
   const keys = [...new Map(out.map((r) => [r.key, { key: r.key, label: r.label }])).values()]
-  return { from, to, bucket, group, currency: cur, buckets: bucketStarts(from, to, bucket), keys, rows: out }
+  return { from, to, bucket, group, currency: { code: cur.code }, buckets: bucketStarts(from, to, bucket), keys, rows: out }
 }
 
 export function perUser(from, to) {
-  const cur = displayCurrency()
+  const cur = trackingCurrency()
   const month = monthKey()
   const cfg = getAiConfig()
   const rows = db
@@ -115,7 +114,7 @@ export function perUser(from, to) {
   return {
     from,
     to,
-    currency: cur,
+    currency: { code: cur.code },
     limits: { monthly_user_limit: cfg.userLimit, monthly_cost_cap: cfg.costCap },
     users: rows.map((r) => {
       const m = userMonth(r.user_id, month)
@@ -123,7 +122,7 @@ export function perUser(from, to) {
         user_id: r.user_id || null,
         name: r.name ?? null,
         email: r.email ?? null,
-        ...finish(r, cur),
+        ...finish(r),
         month_requests: m.requests,
         month_cost: Math.round(m.cost * 1e6) / 1e6,
       }
@@ -146,6 +145,7 @@ export function analyticsRoutes(app) {
   })
   app.get('/api/admin/ai/usage/export.csv', requireAdmin, (req, res) => {
     const { from, to } = range(req.query)
+    const cur = trackingCurrency()
     const rows = db
       .prepare(
         `SELECT t.day, t.user_id, u.email, t.feature, t.provider, t.model, ${SUMS}
@@ -156,10 +156,10 @@ export function analyticsRoutes(app) {
     res.setHeader('Content-Type', 'text/csv; charset=utf-8')
     res.setHeader('Content-Disposition', `attachment; filename="wishy-ai-usage-${from}_${to}.csv"`)
     res.write(
-      '﻿' + csvRow(['day', 'user_id', 'user_email', 'feature', 'provider', 'model', 'requests', 'errors', 'input_tokens', 'output_tokens', 'cache_read_tokens', 'cache_write_tokens', 'cost_usd', 'unpriced_requests']),
+      '﻿' + csvRow(['day', 'user_id', 'user_email', 'feature', 'provider', 'model', 'requests', 'errors', 'input_tokens', 'output_tokens', 'cache_read_tokens', 'cache_write_tokens', 'cost', 'currency', 'unpriced_requests']),
     )
     for (const r of rows) {
-      res.write(csvRow([r.day, r.user_id || '', r.email, r.feature, r.provider, r.model, r.requests, r.errors, r.input_tokens, r.output_tokens, r.cache_read_tokens, r.cache_write_tokens, r.cost, r.unpriced_requests]))
+      res.write(csvRow([r.day, r.user_id || '', r.email, r.feature, r.provider, r.model, r.requests, r.errors, r.input_tokens, r.output_tokens, r.cache_read_tokens, r.cache_write_tokens, r.cost, cur.code, r.unpriced_requests]))
     }
     res.end()
   })

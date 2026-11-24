@@ -1,7 +1,37 @@
 import { db, tx } from '../db.js'
-import { computeCost, getPrices, seedPrices } from './prices.js'
+import { getSys, setSys } from '../config.js'
+import { computeCost, getPrices, seedPrices, trackingCurrency } from './prices.js'
 
 seedPrices()
+
+/** Currency the stored costs are in (setting ai_usage_currency); missing = USD, i.e. a 1.0.0 database. */
+function recordedCurrency() {
+  const v = getSys('ai_usage_currency')
+  return v && typeof v.code === 'string' && Number(v.rate) > 0 ? { code: v.code, rate: Number(v.rate) } : { code: 'USD', rate: 1 }
+}
+
+/**
+ * Brings the stored costs in line with the tracking currency (invariant: ai_usage.cost, ai_usage_daily.cost and the cost cap are in it).
+ * A different currency converts all costs and the cap with newRate / oldRate; the same currency with a new rate only moves the marker
+ * (history stays as recorded). Runs at startup (1.0.0 databases, restored backups) and after saving the settings; idempotent.
+ * @param {{ convertCap?: boolean }} opts convertCap=false when the cap was just set explicitly in the new currency
+ */
+export function reconcileCurrency({ convertCap = true } = {}) {
+  tx(() => {
+    const from = recordedCurrency()
+    const to = trackingCurrency()
+    if (from.code === to.code && from.rate === to.rate) return
+    if (from.code !== to.code) {
+      const factor = to.rate / from.rate
+      db.prepare('UPDATE ai_usage SET cost=cost*? WHERE cost IS NOT NULL').run(factor)
+      db.prepare('UPDATE ai_usage_daily SET cost=cost*?').run(factor)
+      const cap = getSys('ai_monthly_cost_cap')
+      if (convertCap && typeof cap === 'number') setSys('ai_monthly_cost_cap', Math.round(cap * factor * 100) / 100)
+    }
+    setSys('ai_usage_currency', to)
+  })
+}
+reconcileCurrency()
 
 export const monthKey = (d = new Date()) => d.toISOString().slice(0, 7)
 
@@ -10,7 +40,7 @@ export const monthlyCount = (month = monthKey()) =>
   db.prepare("SELECT COUNT(*) AS n FROM ai_usage WHERE substr(created_at,1,7)=? AND feature!='test'").get(month).n +
   db.prepare("SELECT COALESCE(SUM(requests),0) AS n FROM ai_usage_daily WHERE substr(day,1,7)=? AND feature!='test'").get(month).n
 
-/** Requests and cost (USD) of a user in the month (without connection tests). */
+/** Requests and cost (tracking currency) of a user in the month (without connection tests). */
 export function userMonth(userId, month = monthKey()) {
   const a = db
     .prepare("SELECT COUNT(*) AS n, COALESCE(SUM(cost),0) AS c FROM ai_usage WHERE user_id=? AND substr(created_at,1,7)=? AND feature!='test'")
@@ -34,7 +64,7 @@ export function finishUsage(id, { input = 0, output = 0, cacheRead = 0, cacheWri
   const row = db.prepare('SELECT model, created_at FROM ai_usage WHERE id=?').get(id)
   if (!row) return
   const t = { input: Math.round(input), output: Math.round(output), cacheRead: Math.round(cacheRead), cacheWrite: Math.round(cacheWrite) }
-  const { cost, snapshot } = computeCost(row.model, t, getPrices())
+  const { cost, snapshot } = computeCost(row.model, t, getPrices(), trackingCurrency())
   db.prepare(
     `UPDATE ai_usage SET input_tokens=?, output_tokens=?, cache_read_tokens=?, cache_write_tokens=?, ok=?, error=?, error_code=?,
        latency_ms=?, cost=?, price_snapshot=? WHERE id=?`,

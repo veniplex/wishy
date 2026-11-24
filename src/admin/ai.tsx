@@ -10,6 +10,7 @@ import { AdminAiPrompts } from './ai-prompts'
 
 /**
  * Admin › AI: provider, features, limits, prices, currency and usage analytics (ai-usage.tsx).
+ * Prices are in USD; costs and the cost cap are recorded in the cost currency (ai_cost_currency).
  */
 const AI_ENV: Record<string, string> = { ai_provider: 'AI_PROVIDER', ai_model: 'AI_MODEL', ai_api_key: 'AI_API_KEY', ai_base_url: 'AI_BASE_URL' }
 const FEATURES = ['link_import', 'text_import', 'image_import', 'suggestions'] as const
@@ -60,10 +61,13 @@ export function AdminAi() {
   const prov = cfg?.providers.find((p) => p.id === f.provider)
   const envHint = (k: string) => (locked(k) ? t('admin.envLocked', { name: AI_ENV[k] }) : undefined)
   const activeModel = f.model.trim() || prov?.default_model || ''
+  const costCurrency = f.currency.trim() || 'USD'
 
   const save = async (extra: object = {}) => {
     setError('')
     try {
+      // Changing the currency converts the stored cap on the server – unless the admin typed a new cap, which counts in the new currency
+      const keepCap = !!cfg && costCurrency !== cfg.ai_cost_currency && f.costCap === (cfg.ai_monthly_cost_cap == null ? '' : String(cfg.ai_monthly_cost_cap))
       const pr: Prices = {}
       for (const r of prices) {
         if (!r.id.trim() && !r.input.trim() && !r.output.trim()) continue
@@ -77,9 +81,9 @@ export function AdminAi() {
         ai_features: f.features,
         ai_monthly_request_limit: optNum(f.limit),
         ai_monthly_user_limit: optNum(f.userLimit),
-        ai_monthly_cost_cap: optNum(f.costCap),
-        ai_cost_currency: f.currency.trim() || null,
-        ai_cost_rate: optNum(f.rate),
+        ...(keepCap ? {} : { ai_monthly_cost_cap: optNum(f.costCap) }),
+        ai_cost_currency: costCurrency,
+        ai_cost_rate: costCurrency === 'USD' ? null : optNum(f.rate),
         ai_prices: pr,
         ...(f.key.trim() ? { ai_api_key: f.key.trim() } : {}),
         ...extra,
@@ -169,7 +173,7 @@ export function AdminAi() {
                 <Field label={t('aiUsage.admin.userLimit')} hint={t('aiUsage.admin.userLimitHint')}>
                   <input className="input" inputMode="numeric" placeholder={t('aiUsage.admin.unlimited')} value={f.userLimit} onChange={(e) => setF({ ...f, userLimit: e.target.value })} />
                 </Field>
-                <Field label={t('aiUsage.admin.costCap')} hint={t('aiUsage.admin.costCapHint')}>
+                <Field label={t('aiUsage.admin.costCap', { currency: costCurrency })} hint={t('aiUsage.admin.costCapHint')}>
                   <input className="input" inputMode="decimal" placeholder={t('aiUsage.admin.unlimited')} value={f.costCap} onChange={(e) => setF({ ...f, costCap: e.target.value })} />
                 </Field>
               </div>
@@ -201,11 +205,13 @@ export function AdminAi() {
               <Button icon={Plus} onClick={() => setPrices([...prices, { id: '', input: '', output: '' }])}>{t('aiUsage.prices.add')}</Button>
               <div className="grid gap-4 sm:grid-cols-2 pt-2 border-t border-line">
                 <Field label={t('aiUsage.prices.currency')} hint={t('aiUsage.prices.currencyHint')}>
-                  <input className="input" maxLength={5} autoComplete="off" value={f.currency} onChange={(e) => setF({ ...f, currency: e.target.value.toUpperCase() })} />
+                  <input className="input" maxLength={5} autoComplete="off" value={f.currency} onChange={(e) => { const currency = e.target.value.toUpperCase(); setF({ ...f, currency, rate: currency.trim() === cfg?.ai_cost_currency ? String(cfg.ai_cost_rate) : '' }) }} />
                 </Field>
-                <Field label={t('aiUsage.prices.rate', { currency: f.currency || '…' })} hint={t('aiUsage.prices.rateHint')}>
-                  <input className="input" inputMode="decimal" value={f.rate} onChange={(e) => setF({ ...f, rate: e.target.value })} />
-                </Field>
+                {costCurrency !== 'USD' && (
+                  <Field label={t('aiUsage.prices.rate', { currency: costCurrency })} hint={t('aiUsage.prices.rateHint')}>
+                    <input className="input" inputMode="decimal" required value={f.rate} onChange={(e) => setF({ ...f, rate: e.target.value })} />
+                  </Field>
+                )}
               </div>
             </Card>
           </Section>

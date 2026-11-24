@@ -4,12 +4,17 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versio
 The section of a version is used automatically as the release notes when releasing
 (`scripts/release-notes.mjs`); the heading must read exactly `## [x.y.z]`.
 
-## [Unreleased]
+## [1.0.1] – 2026-11-24
 
+### Fixed
+- AI costs are tracked in the configured currency: costs and the cost cap are recorded in it (prices stay in USD, converted with the exchange rate at the time of the request). Already recorded costs and the cap are converted once when updating, and whenever the currency changes. A currency other than USD needs an exchange rate.
+- After a failed update, the shown command to find the recovery token matches the container log.
+
+### Changed
+- The AI usage CSV export contains `cost` and `currency` instead of `cost_usd`.
+- `docker-compose.yml` keeps the data in a named volume (`wishy-data`) by default. Existing installations with `./data` keep their Compose file or use the commented line for a folder.
 - License: GNU Affero General Public License v3 (`AGPL-3.0-only`); the license text is part of the release archive and the image.
 - Extended security policy for reporting vulnerabilities.
-- `docker-compose.yml` keeps the data in a named volume by default.
-- Fixed: after a failed update, the shown command to find the recovery token now matches the container log.
 
 ## [1.0.0] – 2026-11-24
 

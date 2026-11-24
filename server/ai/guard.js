@@ -19,7 +19,7 @@ export function gate(feature, user) {
   return cfg
 }
 
-/** Global monthly limit, user limit and cost cap (per user) – otherwise 429 ai_limit_reached. */
+/** Global monthly limit, user limit and cost cap (per user) – otherwise 429 ai_limit_reached. Costs and cap are both in the tracking currency. */
 export function assertLimit(cfg, userId) {
   if (cfg.limit !== null && monthlyCount() >= cfg.limit) throw err(429, 'The monthly AI limit has been reached', 'ai_limit_reached')
   if (userId != null && (cfg.userLimit !== null || cfg.costCap !== null)) {

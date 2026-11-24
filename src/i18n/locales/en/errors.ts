@@ -216,6 +216,7 @@ const en: Record<keyof typeof de, string> = {
   'code.ai_model_invalid': 'Invalid model ID',
   'code.ai_limit_invalid': 'The monthly limit must be a whole number ≥ 0 (empty = unlimited)',
   'code.ai_features_invalid': 'Invalid feature selection',
+  'code.cost_rate_required': 'Please enter an exchange rate for {currency} (1 USD = ? {currency})',
   'code.backup_busy': 'A backup operation is already running',
   'code.backup_corrupt': 'The backup is damaged',
   'code.backup_not_found': 'Backup not found',
