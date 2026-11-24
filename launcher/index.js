@@ -1427,7 +1427,7 @@ const RT = {
     restart: 'Neu starten (beste verfügbare Version)',
     prev: (v) => `Vorherige Version starten (${v})`,
     restorePre: (n) => `Letzte pre-update-Sicherung einspielen (${n})`,
-    token: 'Wiederherstellungs-Token (steht im Container-Log):',
+    token: 'Wiederherstellungs-Token (im Container-Log: „Recovery token“):',
     show: 'Anzeigen',
     msg: {
       tooMany: 'Zu viele Fehlversuche – bitte 10 Minuten warten.',

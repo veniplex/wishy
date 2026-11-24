@@ -178,7 +178,7 @@ export default {
   'running.blip': 'Verbindung kurz unterbrochen – Wishy wird gerade ausgetauscht …',
   'failed.recoveryTitle': 'Notfall-Ansicht',
   'failed.recovery': 'Läuft Wishy nicht richtig, öffne /__launcher/recovery an der Adresse deiner Installation. Das Zugangs-Token steht im Container-Log:',
-  'failed.recoveryCmd': 'docker compose logs wishy | grep Wiederherstellungs-Token',
+  'failed.recoveryCmd': 'docker compose logs wishy | grep -i "recovery token"',
   'failed.rollbackFailed': 'Der automatische Rollback ist fehlgeschlagen. Die alte Version wird bewusst nicht auf einer bereits umgestellten Datenbank gestartet.',
   'code.docker_unavailable': 'Kein Zugriff auf die Docker-API – nur ein App-Update ist möglich.',
   'code.digest_mismatch': 'Das geladene Image passt nicht zur signierten Prüfsumme (Digest) und wurde verworfen.',
