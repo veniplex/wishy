@@ -16,6 +16,8 @@ services:
     # group_add: ["999"]                            # option A: GID of the socket on the host (stat -c %g /var/run/docker.sock)
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
+    # read_only: true                               # stricter, then also:
+    # tmpfs: [/tmp]
 
     environment:
       # --- General -----------------------------------------------------------------------------------------
