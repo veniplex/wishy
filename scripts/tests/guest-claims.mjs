@@ -73,7 +73,7 @@ const t = (name, cond, extra) => {
   if (cond) pass++
   else { failN++; results.push('FAIL ' + name + (extra !== undefined ? ' -> ' + JSON.stringify(extra).slice(0, 400) : '')) }
 }
-const rawDb = () => new DatabaseSync(path.join(DATA, 'wishlist.db'))
+const rawDb = () => new DatabaseSync(path.join(DATA, 'wishlist.db'), { timeout: 5000 }) // the server writes at the same time
 const resvRows = () => { const d = rawDb(); try { return d.prepare('SELECT * FROM reservations ORDER BY id').all() } finally { d.close() } }
 const auditRows = (action) => { const d = rawDb(); try { return d.prepare('SELECT * FROM audit_log WHERE action=? ORDER BY id').all(action) } finally { d.close() } }
 const KEY = (h) => ({ 'X-Guest-Key': h })

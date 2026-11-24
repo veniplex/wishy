@@ -58,7 +58,7 @@ const t = (name, cond, extra) => {
 
 const DEFAULT_KEYS = ['birthday', 'christmas', 'st_nicholas', 'easter', 'valentine', 'anniversary', 'parentsday', 'wedding', 'baby', 'housewarming', 'other']
 const OT = (st, key) => st.occasion_types.find((x) => x.key === key)
-const rawDb = () => new DatabaseSync(path.join(DATA, 'wishlist.db'))
+const rawDb = () => new DatabaseSync(path.join(DATA, 'wishlist.db'), { timeout: 5000 }) // the server writes at the same time
 
 async function main() {
   const A = new Client(), B = new Client()

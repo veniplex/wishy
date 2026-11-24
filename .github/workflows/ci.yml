@@ -104,8 +104,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Type check
-        run: npm run typecheck
+      # The smoke tests also check the built frontend (headers, assets)
+      - name: Build the frontend (with type check)
+        run: npm run build
 
       - name: Run the smoke tests
         env:

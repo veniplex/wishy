@@ -56,7 +56,7 @@ const t = (name, cond, extra) => {
 }
 const denied = (r, perm) => r.status === 403 && r.data?.code === 'permission_denied' && r.data?.params?.permission === perm
 const ok = (r) => r.status === 200
-const rawDb = () => new DatabaseSync(path.join(DATA, 'wishlist.db'))
+const rawDb = () => new DatabaseSync(path.join(DATA, 'wishlist.db'), { timeout: 5000 }) // the server writes at the same time
 
 const KEYS = ['invite_members', 'share_wishlists', 'manage_persons', 'manage_occasions', 'manage_gifts', 'view_expenses', 'manage_space_settings']
 const DEFAULTS = { invite_members: false, share_wishlists: true, manage_persons: true, manage_occasions: true, manage_gifts: true, view_expenses: true, manage_space_settings: true }

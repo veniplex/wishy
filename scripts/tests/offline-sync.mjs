@@ -70,7 +70,7 @@ const t = (name, cond, extra) => {
 }
 const ok = (r) => r.status === 200
 const op = () => ({ 'X-Op-Id': randomUUID() })
-const rawDb = () => new DatabaseSync(path.join(DATA, 'wishlist.db'))
+const rawDb = () => new DatabaseSync(path.join(DATA, 'wishlist.db'), { timeout: 5000 }) // the server writes at the same time
 const count = (sql, ...p) => { const d = rawDb(); try { return d.prepare(sql).get(...p).n } finally { d.close() } }
 const opRows = () => count('SELECT COUNT(*) AS n FROM client_ops')
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
