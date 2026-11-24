@@ -5,7 +5,7 @@ import { baseUrl } from './config.js'
 // Content-Security-Policy. The built frontend loads everything from its own origin (fonts are bundled, no third-party hosts):
 //  - script-src 'self': no inline script (the theme script lives at /assets/theme-init.js, see public/assets/)
 //  - style-src 'unsafe-inline': React/charts set style attributes; scripts are unaffected
-//  - img-src data: blob: : Bildvorschau (Dateiauswahl), QR-Code (data:-URL), Favicon (data:)
+//  - img-src data: blob: : image preview (file picker), QR code (data: URL)
 //  - connect-src 'self': own API only; frame-ancestors 'none' + X-Frame-Options: no embedding (clickjacking)
 export const CSP = [
   "default-src 'self'",

@@ -170,7 +170,7 @@ export class Docker {
   }
 }
 
-/** Eigene Container-ID ermitteln (Env → mountinfo → cgroup → Hostname). */
+/** Candidates for the own container id (env → mountinfo → cgroup → hostname). */
 export function selfContainerCandidates(env = process.env) {
   const out = []
   if (env.WISHY_CONTAINER_ID) out.push(env.WISHY_CONTAINER_ID)
